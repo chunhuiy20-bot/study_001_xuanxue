@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>梅花周易 - 全息天道盘 (极致纯净版)</title>
+    <style>
+        :root {
+            /* 1. 曜黑 (Obsidian) - 宇宙底噪与面板 */
+            --c-bg: #050505;
+            --c-panel: rgba(15, 15, 15, 0.65);
+            --c-hub: rgba(10, 10, 10, 0.8);
+            
+            /* 2. 霜白 (Frost) - 基础数据与辅星 */
+            --c-white: #EEEEEE;
+            --c-gray: rgba(238, 238, 238, 0.45);
+            --c-border: rgba(238, 238, 238, 0.15);
+            
+            /* 3. 真金 (True Gold) - 主星、吉兆、高亮框 */
+            --c-gold: #CBA052;
+            --c-gold-muted: rgba(203, 160, 82, 0.15);
+            --c-gold-glow: rgba(203, 160, 82, 0.4);
+            
+            /* 4. 朱砂 (Cinnabar) - 绝对核心与凶兆警示 */
+            --c-red: #E53935;
+            --c-red-muted: rgba(229, 57, 53, 0.15);
+            
+            /* 极简排版字体 */
+            --font-serif: "Noto Serif SC", "Songti SC", "SimSun", serif;
+            --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+            --font-mono: "SFMono-Regular", Consolas, monospace;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+        body, html {
+            width: 100%; height: 100%; background-color: var(--c-bg);
+            font-family: var(--font-sans); color: var(--c-white); overflow: hidden; display: flex; flex-direction: column;
+        }
+
+        /* 核心：28星宿全息图层，置于排盘UI之上 */
+        #starCanvas { 
+            position: absolute; top: 0; left: 0; z-index: 50; 
+            pointer-events: none; opacity: 0.9; mix-blend-mode: screen; 
+        }
+        
+        .sys-toast {
+            position: fixed; top: 20px; left: 50%; transform: translate(-50%, -20px);
+            color: var(--c-gold); font-size: 0.85rem; letter-spacing: 2px;
+            background: var(--c-bg); border: 1px solid var(--c-gold);
+            padding: 10px 24px; border-radius: 4px; z-index: 999;
+            opacity: 0; pointer-events: none; transition: all 0.4s ease;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.9); font-family: var(--font-serif);
+        }
+        .sys-toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+        /* ================= 极简头部 ================= */
+        .header { position: relative; z-index: 100; padding: 20px 20px 10px; display: flex; justify-content: space-between; align-items: flex-start; }
+        .user-selector { position: relative; display: inline-block; margin-bottom: 5px; }
+        .current-user {
+            font-size: 1.1rem; color: var(--c-gold); font-family: var(--font-serif); font-weight: bold;
+            display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 6px 12px; background: var(--c-gold-muted); border-radius: 4px; border: 1px solid var(--c-gold-muted); transition: all 0.3s;
+            backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+        }
+        .current-user:active { opacity: 0.7; }
+        .current-user .arrow { font-size: 0.6rem; transition: transform 0.3s; }
+        .user-selector.open .arrow { transform: rotate(180deg); }
+
+        .user-dropdown {
+            position: absolute; top: calc(100% + 5px); left: 0; width: 180px;
+            background: rgba(10, 10, 10, 0.95); border: 1px solid var(--c-border);
+            border-radius: 4px; box-shadow: 0 15px 40px rgba(0,0,0,0.9);
+            opacity: 0; pointer-events: none; transform: translateY(-10px);
+            transition: all 0.3s ease; z-index: 100; overflow: hidden; backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
+        }
+        .user-selector.open .user-dropdown { opacity: 1; pointer-events: auto; transform: translateY(0); }
+        .u-item { padding: 12px 16px; font-size: 0.9rem; color: var(--c-white); cursor: pointer; transition: background 0.2s; font-family: var(--font-serif); }
+        .u-item:active { background: var(--c-border); }
+        .u-item.active { color: var(--c-gold); background: var(--c-gold-muted); }
+        .u-divider { height: 1px; background: var(--c-border); margin: 0; }
+        .u-add { padding: 12px 16px; font-size: 0.9rem; color: var(--c-gray); cursor: pointer; display: flex; align-items: center; gap: 8px; font-family: var(--font-sans);}
+
+        .date-sub { font-size: 0.65rem; color: var(--c-gray); letter-spacing: 1px; font-family: var(--font-mono); text-transform: uppercase; margin-top: 6px;}
+        .header-right { font-size: 0.85rem; color: var(--c-white); font-family: var(--font-mono); padding-top: 6px; border: 1px solid var(--c-border); padding: 4px 8px; border-radius: 4px; background: rgba(255,255,255,0.02); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);}
+
+        /* ================= 核心：12宫矩阵 (四色极简) ================= */
+        .astrolabe-container { position: relative; z-index: 10; width: 100vw; height: 100vw; padding: 6px; margin-top: 5px; }
+        
+        .grid-12 {
+            width: 100%; height: 100%; display: grid;
+            grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(4, 1fr);
+            gap: 1px; background: var(--c-border); 
+            border: 1px solid var(--c-border);
+        }
+
+        .palace { 
+            background: var(--c-panel); position: relative; padding: 4px; cursor: pointer; 
+            transition: all 0.3s ease; 
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+        }
+        
+        .palace::before { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; border: 1px solid transparent; transition: all 0.3s; z-index: 5; pointer-events: none; }
+        
+        /* 选中高亮态：真金 */
+        .palace.active { background: rgba(203, 160, 82, 0.08); }
+        .palace.active::before {
+            border-color: var(--c-gold-glow);
+            background: 
+                linear-gradient(to right, var(--c-gold) 2px, transparent 2px) 0 0,
+                linear-gradient(to bottom, var(--c-gold) 2px, transparent 2px) 0 0,
+                linear-gradient(to left, var(--c-gold) 2px, transparent 2px) 100% 0,
+                linear-gradient(to bottom, var(--c-gold) 2px, transparent 2px) 100% 0,
+                linear-gradient(to right, var(--c-gold) 2px, transparent 2px) 0 100%,
+                linear-gradient(to top, var(--c-gold) 2px, transparent 2px) 0 100%,
+                linear-gradient(to left, var(--c-gold) 2px, transparent 2px) 100% 100%,
+                linear-gradient(to top, var(--c-gold) 2px, transparent 2px) 100% 100%;
+            background-repeat: no-repeat; background-size: 8px 8px;
+            box-shadow: inset 0 0 15px var(--c-gold-muted);
+        }
+        
+        /* 三方四正：虚线金 */
+        .palace.trine { background: rgba(203, 160, 82, 0.03); }
+        .palace.trine::after { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; border: 1px dashed var(--c-gold-glow); pointer-events: none; z-index: 4; opacity: 0.6; }
+
+        /* 内部数据排版：全部依靠 CSS 统一控制，不再写死颜色类名 */
+        .p-major-stars { position: absolute; top: 5px; left: 5px; display: flex; gap: 3px; z-index: 2; }
+        .star-col { display: flex; flex-direction: column; align-items: center; }
+        
+        /* 主星：真金 */
+        .s-name { font-size: 13px; font-weight: bold; writing-mode: vertical-rl; letter-spacing: 2px; font-family: var(--font-serif); color: var(--c-gold); text-shadow: 0 2px 4px rgba(0,0,0,0.8);}
+        .s-status { font-size: 9px; color: var(--c-gray); margin-top: 4px; font-family: var(--font-serif); }
+        
+        /* 四化：金与红的极致对比 */
+        .s-sihua { font-size: 9px; padding: 1px 2px; border-radius: 2px; writing-mode: horizontal-tb; margin-top: 4px; line-height: 1.1; font-family: var(--font-sans); background: transparent;}
+        .s-gold { color: var(--c-gold); border: 1px solid var(--c-gold); } 
+        .s-red { color: var(--c-red); border: 1px solid var(--c-red); background: var(--c-red-muted); font-weight: bold;}
+
+        /* 辅星与神煞：霜白与幽灰 */
+        .p-minor-stars { position: absolute; top: 5px; right: 5px; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 10px; font-family: var(--font-serif); color: var(--c-white); opacity: 0.9;}
+        .minor-col { display: flex; gap: 4px; }
+
+        .p-gods { position: absolute; bottom: 6px; left: 5px; font-size: 9px; display: flex; flex-direction: column; gap: 2px; font-family: var(--font-serif); color: var(--c-gray);}
+        
+        /* 岁数与流年 */
+        .p-age { position: absolute; bottom: 8px; width: 100%; left: 0; text-align: center; font-size: 10px; color: var(--c-gray); font-family: var(--font-mono); letter-spacing: 0.5px; }
+
+        /* 宫位名称：霜白 */
+        .p-name-branch { position: absolute; bottom: 5px; right: 5px; display: flex; flex-direction: column; align-items: flex-end; }
+        .p-name { font-size: 12px; color: var(--c-white); font-weight: bold; font-family: var(--font-serif); }
+        .p-branch { font-size: 10px; color: var(--c-gray); margin-top: 3px; font-family: var(--font-mono); }
+        
+        /* 命宫特例：朱砂红高亮 */
+        .ming-gong .p-name { color: var(--c-bg); background: var(--c-red); padding: 1px 4px; border-radius: 2px;}
+
+        /* ================= 中央中枢面板 (极简重构) ================= */
+        .center-hub {
+            grid-area: 2 / 2 / 4 / 4; 
+            background: var(--c-hub); padding: 15px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            position: relative; border: 1px solid rgba(255,255,255,0.02);
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+        }
+        
+        /* 姓名局数排版 */
+        .hub-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+        .hub-name { font-size: 1.4rem; color: var(--c-white); font-family: var(--font-serif); font-weight: bold; text-shadow: 0 0 10px rgba(255,255,255,0.2);}
+        .hub-tag { font-size: 0.8rem; color: var(--c-gray); font-family: var(--font-sans); }
+        .hub-ju { font-size: 0.8rem; color: var(--c-gold); font-family: var(--font-sans); border: 1px solid var(--c-gold-muted); padding: 1px 4px; border-radius: 2px;}
+        
+        .hub-info { width: 100%; font-size: 10px; color: var(--c-gray); line-height: 1.6; text-align: center; font-family: var(--font-sans);}
+        
+        /* 极简四柱 (金干白支) */
+        .four-pillars { display: flex; justify-content: center; gap: 15px; margin: 15px 0; width: 100%; border-top: 1px solid var(--c-border); border-bottom: 1px solid var(--c-border); padding: 8px 0;}
+        .pillar-col { display: flex; flex-direction: column; align-items: center; font-size: 14px; font-weight: bold; font-family: var(--font-serif); gap: 4px; }
+        .p-label { font-size: 9px; color: var(--c-gray); font-weight: normal; margin-bottom: 2px; font-family: var(--font-sans);}
+        .c-stem { color: var(--c-gold); } .c-branch { color: var(--c-white); }
+        
+        /* 极简控制器 */
+        .control-btns { display: flex; border: 1px solid var(--c-border); border-radius: 4px; overflow: hidden; margin-top: 10px;}
+        .c-btn { padding: 6px 16px; font-size: 10px; color: var(--c-gray); cursor: pointer; transition: all 0.2s; border-right: 1px solid var(--c-border); font-family: var(--font-sans);}
+        .c-btn:last-child { border-right: none; }
+        .c-btn.active { background: var(--c-white); color: var(--c-bg); font-weight: bold;}
+
+        /* ================= 底部时间轴 ================= */
+        .timeline-section { 
+            flex: 1; background: transparent; margin-top: 15px; 
+            display: flex; flex-direction: column; overflow: hidden;
+            padding: 0 10px; position: relative; z-index: 10;
+        }
+        
+        .tl-row { display: flex; align-items: center; padding: 6px 0; background: var(--c-panel); margin-bottom: 8px; border-radius: 6px; border: 1px solid var(--c-border); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);}
+        .tl-header { 
+            width: 50px; flex-shrink: 0; text-align: center;
+            font-size: 11px; color: var(--c-gold); font-family: var(--font-serif); font-weight: bold; border-right: 1px dashed var(--c-border);
+        }
+        .tl-content { 
+            flex: 1; display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scroll-behavior: smooth;
+            padding: 0 10px; gap: 8px;
+        }
+        .tl-content::-webkit-scrollbar { display: none; }
+        
+        .tl-cell { 
+            flex: 0 0 calc(22% - 8px); 
+            padding: 6px 0; border-radius: 4px; background: transparent;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; 
+            scroll-snap-align: center; cursor: pointer; transition: all 0.2s;
+        }
+        .tl-cell.active { background: var(--c-gold); transform: scale(1.05); }
+        
+        .t-top { font-size: 11px; color: var(--c-white); font-family: var(--font-mono); }
+        .t-bot { font-size: 10px; color: var(--c-gray); margin-top: 2px; font-family: var(--font-serif);}
+        
+        /* 选中时反色 */
+        .tl-cell.active .t-top, .tl-cell.active .t-bot { color: var(--c-bg); font-weight: bold; }
+
+        /* 底部导航栏 */
+        .bottom-nav { position: relative; z-index: 100; height: 60px; background: rgba(5, 5, 5, 0.8); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); display: flex; justify-content: space-around; align-items: center; padding-bottom: 10px; border-top: 1px solid var(--c-border);}
+        .nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--c-gray); cursor: pointer; width: 60px; transition: color 0.3s;}
+        .nav-text { font-size: 0.75rem; font-family: var(--font-serif); font-weight: bold; letter-spacing: 2px; text-indent: 2px; }
+        .nav-dot { width: 4px; height: 4px; border-radius: 50%; background: transparent; transition: all 0.3s; }
+        .nav-item.active { color: var(--c-gold); }
+        .nav-item.active .nav-dot { background: var(--c-gold); box-shadow: 0 0 10px var(--c-gold-glow); }
+
+    </style>
+</head>
+<body>
+
+<canvas id="starCanvas"></canvas>
+<div class="sys-toast" id="sysToast"></div>
+
+<div class="header">
+    <div class="header-left">
+        <div class="user-selector" id="userSelector">
+            <div class="current-user">
+                <span id="currentUserName">匿名</span> <span class="arrow">▼</span>
+            </div>
+            <div class="user-dropdown" id="userDropdown">
+                <div class="u-item active">匿名</div>
+                <div class="u-item">李辉</div>
+                <div class="u-divider"></div>
+                <div class="u-add" id="btnAddNew">＋ 建立新命盘</div>
+            </div>
+        </div>
+        <div class="date-sub">LUNAR: 乙巳年 六月廿一</div>
+    </div>
+    <div class="header-right">巳时</div>
+</div>
+
+<div class="astrolabe-container" id="astrolabeContainer">
+    <div class="grid-12" id="astrolabeGrid">
+        <div class="palace" data-idx="5">
+            <div class="p-major-stars"><div class="star-col"><span class="s-name">天同</span><span class="s-status">庙</span></div><div class="star-col"><span class="s-name">巨门</span><span class="s-status">平</span></div></div>
+            <div class="p-minor-stars"><div class="minor-col">三台 凤阁</div><div class="minor-col">解神 阴煞</div></div>
+            <div class="p-gods"><span>青龙</span><span>指背</span><span>岁建</span></div>
+            <div class="p-age">65~74</div>
+            <div class="p-name-branch"><span class="p-name">迁移</span><span class="p-branch">辛巳</span></div>
+        </div>
+        <div class="palace" data-idx="6">
+            <div class="p-major-stars"><div class="star-col"><span class="s-name">武曲</span><span class="s-status">旺</span></div><div class="star-col"><span class="s-name">天府</span><span class="s-status">旺</span></div></div>
+            <div class="p-minor-stars"><div class="minor-col">铃星 天姚</div></div>
+            <div class="p-gods"><span>小耗</span><span>咸池</span><span>晦气</span></div>
+            <div class="p-age">75~84</div>
+            <div class="p-name-branch"><span class="p-name">疾厄</span><span class="p-branch">壬午</span></div>
+        </div>
+        <div class="palace" data-idx="7">
+            <div class="p-major-stars"><div class="star-col"><span class="s-name">太阳</span><span class="s-status">平</span></div><div class="star-col"><span class="s-name">太阴</span><span class="s-status">平</span><span class="s-sihua s-red">忌</span></div></div>
+            <div class="p-minor-stars"><div class="minor-col">地劫 天贵</div></div>
+            <div class="p-gods"><span>将军</span><span>月煞</span><span>丧门</span></div>
+            <div class="p-age">85~94</div>
+            <div class="p-name-branch"><span class="p-name">财帛</span><span class="p-branch">癸未</span></div>
+        </div>
+        <div class="palace" data-idx="8">
+            <div class="p-major-stars"><div class="star-col"><span class="s-name">贪狼</span><span class="s-status">平</span></div></div>
+            <div class="p-minor-stars"><div class="minor-col">天钺 天福</div><div class="minor-col">孤辰</div></div>
+            <div class="p-gods"><span>奏书</span><span>亡神</span><span>贯索</span></div>
+            <div class="p-age">95~104</div>
+            <div class="p-name-branch"><span class="p-name">子女</span><span class="p-branch">甲申</span></div>
+        </div>
+
+        <div class="palace" data-idx="4">
+            <div class="p-major-stars"><div class="star-col"><span class="s-name">破军</span><span class="s-status">旺</span></div></div>
+            <div class="p-minor-stars"><div class="minor-col">擎羊 官府</div></div>
+            <div class="p-gods"><span>力士</span><span>天煞</span><span>病符</span></div>
+            <div class="p-age">55~64</div>
+            <div class="p-name-branch"><span class="p-name">交友</span><span class="p-branch">庚辰</span></div>
+        </div>
+        
+        <div class="center-hub">
+            <div class="hub-head">
+                <span class="hub-name" id="hubName">匿名</span> 
+                <span class="hub-tag">阴女</span>
+                <span class="hub-ju" id="hubJu">土五局</span>
+            </div>
+            
+            <div class="hub-info">
+                <span>真太阳时</span> <span style="color:var(--c-white)">2025-07-15 16:40</span>
+            </div>
+            <div class="hub-info" style="margin-top: 4px;">
+                <span>命主</span> <span style="color:var(--c-gold)">巨门</span>
+                <span style="margin-left: 10px;">身主</span> <span style="color:var(--c-gold)">天机</span>
+            </div>
+            
+            <div class="four-pillars">
+                <div class="pillar-col"><span class="p-label">年柱</span><span class="c-stem">乙</span><span class="c-branch">巳</span></div>
+                <div class="pillar-col"><span class="p-label">月柱</span><span class="c-stem">癸</span><span class="c-branch">未</span></div>
+                <div class="pillar-col"><span class="p-label">日柱</span><span class="c-stem">乙</span><span class="c-branch">酉</span></div>
+                <div class="pillar-col"><span class="p-label">时柱</span><span class="c-stem">甲</span><span class="c-branch">申</span></div>
+            </div>
+            
+            <div class="hub-info">出生后 7年 7月 起运</div>
+            
+            <div class="control-btns">
+                <div class="c-btn">流日</div><div class="c-btn active">本盘</div><div class="c-btn">流月</div>
+            </div>
+        </div>
+
+        <div class="palace" data-idx="9">
+            <div class="p-major-stars"><div class="star-col"><span class="s-name">天机</span><span class="s-status">旺</span><span class="s-sihua s-gold">禄</span></div><div class="star-col"><span class="s-name">巨门</span><span class="s-status">庙</span></div></div>
+            <div class="p-minor-stars"><div class="minor-col">左辅 八座</div></div>
+            <div class="p-gods"><span>飞廉</span><span>将星</span></div>
+            <div class="p-age">105~114</div>
+            <div class="p-name-branch"><span class="p-name">夫妻</span><span class="p-branch">乙酉</span></div>
+        </div>
+
+        <div class="palace" data-idx="3">
+            <div class="p-major-stars"><div class="star-col"><span class="s-name">禄存</span><span class="s-status">旺</span></div></div>
+            <div class="p-minor-stars"><div class="minor-col">天空 月空</div></div>
+            <div class="p-gods"><span>博士</span><span>灾煞</span></div>
+            <div class="p-age">45~54</div>
+            <div class="p-name-branch"><span class="p-name">官禄</span><span class="p-branch">己卯</span></div>
+        </div>
+        
+        <div class="palace" data-idx="10">
+            <div class="p-major-stars"><div class="star-col"><span class="s-name">紫微</span><span class="s-status">闲</span><span class="s-sihua s-gold">科</span></div><div class="star-col"><span class="s-name">天相</span><span class="s-status">闲</span></div></div>
+            <div class="p-minor-stars"><div class="minor-col">红鸾 封诰</div></div>
+            <div class="p-gods"><span>喜神</span><span>攀鞍</span></div>
+            <div class="p-age">115~124</div>
+            <div class="p-name-branch"><span class="p-name">兄弟</span><span class="p-branch">丙戌</span></div>
+        </div>
+
+        <div class="palace" data-idx="2">
+            <div class="p-major-stars"><div class="star-col"><span class="s-name">廉贞</span><span class="s-status">庙</span></div><div class="star-col"><span class="s-name">天府</span><span class="s-status">庙</span></div></div>
+            <div class="p-minor-stars"><div class="minor-col">陀罗 刑煞</div></div>
+            <div class="p-gods"><span>官府</span><span>劫煞</span></div>
+            <div class="p-age">35~44</div>
+            <div class="p-name-branch"><span class="p-name">田宅</span><span class="p-branch">戊寅</span></div>
+        </div>
+        <div class="palace" data-idx="1">
+            <div class="p-major-stars"></div>
+            <div class="p-minor-stars"><div class="minor-col">天哭 华盖</div></div>
+            <div class="p-gods"><span>伏兵</span><span>白虎</span></div>
+            <div class="p-age">25~34</div>
+            <div class="p-name-branch"><span class="p-name">福德</span><span class="p-branch">己丑</span></div>
+        </div>
+        <div class="palace" data-idx="0">
+            <div class="p-major-stars"><div class="star-col"><span class="s-name">七杀</span><span class="s-status">旺</span></div></div>
+            <div class="p-minor-stars"><div class="minor-col">文曲 天魁</div></div>
+            <div class="p-gods"><span>大耗</span><span>息神</span></div>
+            <div class="p-age">15~24</div>
+            <div class="p-name-branch"><span class="p-name">父母</span><span class="p-branch">戊子</span></div>
+        </div>
+        <div class="palace ming-gong active" data-idx="11">
+            <div class="p-major-stars"><div class="star-col"><span class="s-name">天梁</span><span class="s-status">陷</span><span class="s-sihua s-gold">权</span></div></div>
+            <div class="p-minor-stars"><div class="minor-col">火星 天马</div></div>
+            <div class="p-gods"><span>病符</span><span>岁破</span></div>
+            <div class="p-age">5~14</div>
+            <div class="p-name-branch"><span class="p-name">命宫</span><span class="p-branch">丁亥</span></div>
+        </div>
+    </div>
+</div>
+
+<div class="timeline-section" id="timelineSection">
+    <div class="tl-row" id="daxianRow">
+        <div class="tl-header">大限</div>
+        <div class="tl-content">
+            <div class="tl-cell limit-btn" data-age="起限前"><span class="t-top">童限</span><span class="t-bot">起限前</span></div>
+            <div class="tl-cell limit-btn active" data-age="5~14"><span class="t-top">丁亥</span><span class="t-bot">5~14</span></div>
+            <div class="tl-cell limit-btn" data-age="15~24"><span class="t-top">戊子</span><span class="t-bot">15~24</span></div>
+            <div class="tl-cell limit-btn" data-age="25~34"><span class="t-top">己丑</span><span class="t-bot">25~34</span></div>
+            <div class="tl-cell limit-btn" data-age="35~44"><span class="t-top">戊寅</span><span class="t-bot">35~44</span></div>
+            <div class="tl-cell limit-btn" data-age="45~54"><span class="t-top">己卯</span><span class="t-bot">45~54</span></div>
+            <div class="tl-cell limit-btn" data-age="55~64"><span class="t-top">庚辰</span><span class="t-bot">55~64</span></div>
+            <div class="tl-cell limit-btn" data-age="65~74"><span class="t-top">辛巳</span><span class="t-bot">65~74</span></div>
+        </div>
+    </div>
+    <div class="tl-row">
+        <div class="tl-header">流年</div>
+        <div class="tl-content">
+            <div class="tl-cell"><span class="t-top">2029</span><span class="t-bot">己酉</span></div>
+            <div class="tl-cell active"><span class="t-top">2030</span><span class="t-bot">庚戌</span></div>
+            <div class="tl-cell"><span class="t-top">2031</span><span class="t-bot">辛亥</span></div>
+            <div class="tl-cell"><span class="t-top">2032</span><span class="t-bot">壬子</span></div>
+            <div class="tl-cell"><span class="t-top">2033</span><span class="t-bot">癸丑</span></div>
+            <div class="tl-cell"><span class="t-top">2034</span><span class="t-bot">甲寅</span></div>
+        </div>
+    </div>
+</div>
+
+<div class="bottom-nav" id="bottomNav">
+    <div class="nav-item"><span class="nav-text">盘</span><div class="nav-dot"></div></div>
+    <div class="nav-item"><span class="nav-text">案</span><div class="nav-dot"></div></div>
+    <div class="nav-item active"><span class="nav-text">经</span><div class="nav-dot"></div></div>
+    <div class="nav-item"><span class="nav-text">我</span><div class="nav-dot"></div></div>
+</div>
+
+<script>
+    function showToast(msg) {
+        const t = document.getElementById('sysToast'); t.innerText = msg; t.classList.add('show');
+        if(navigator.vibrate) navigator.vibrate([10]);
+        setTimeout(() => t.classList.remove('show'), 2000);
+    }
+
+    const userSelector = document.getElementById('userSelector');
+    document.addEventListener('click', (e) => {
+        if(userSelector.contains(e.target)) userSelector.classList.toggle('open');
+        else userSelector.classList.remove('open');
+    });
+    document.querySelectorAll('.u-item').forEach(item => {
+        item.addEventListener('click', function() {
+            if(this.classList.contains('u-add')) return;
+            document.querySelectorAll('.u-item').forEach(el => el.classList.remove('active'));
+            this.classList.add('active');
+            const newName = this.innerText.trim();
+            document.getElementById('currentUserName').innerText = newName;
+            document.getElementById('hubName').innerText = newName;
+            showToast(`已加载：${newName}`);
+        });
+    });
+    document.getElementById('btnAddNew').addEventListener('click', () => showToast("开启排盘模块..."));
+
+    // 白银星宿底噪引擎 (350星 + 随机频闪)
+    const canvas = document.getElementById('starCanvas'); 
+    const ctx = canvas.getContext('2d');
+    let width, height, stars = [];
+    let frame = 0;
+
+    const ConstellationShapes = [
+        [[0,0], [15,20]], [[0,0], [-20,10], [-10,-15]], [[0,0], [25,0], [12, 15], [12, -15]],
+        [[0,0], [15,20], [30,40]], [[0,0], [20,10], [15,-15]], [[0,0], [10,15], [20,30], [25,45]],
+        [[0,0], [20,-10], [35,-5]], [[0,0], [20,-10], [40,-5], [55,10], [55,30]],
+        [[0,0], [15,20]], [[0,0], [-20,10], [-10,-15]], [[0,0], [25,0]],
+        [[0,0], [15,20], [30,40]], [[0,0], [20,10], [15,-15]], [[0,0], [10,15], [20,30]]
+    ];
+
+    class Star {
+        constructor(isCore = false, targetPos = null, groupIndex = 0) {
+            this.x = targetPos ? targetPos.x : (width / 2 + (Math.random() - 0.5) * width * 2.5);
+            this.y = targetPos ? targetPos.y : (height / 2 + (Math.random() - 0.5) * height * 2.5);
+            this.isCore = isCore; 
+            this.groupIndex = groupIndex;
+            this.size = isCore ? (Math.random() * 1.2 + 0.8) : (Math.random() * 1.0 + 0.1);
+            this.baseOpacity = isCore ? (Math.random() * 0.4 + 0.4) : (Math.random() * 0.2 + 0.05);
+            
+            if (!isCore) {
+                this.twinkleSpeed = Math.random() * 0.02 + 0.005;
+                this.twinklePhase = Math.random() * Math.PI * 2;
+                this.isBlinker = Math.random() < 0.15; 
+            } else {
+                this.speed = Math.random() * 0.02 + 0.01;
+            }
+            this.color = `rgba(255, 255, 255, `;
+        }
+        
+        draw(ctx) {
+            let opacity = this.baseOpacity;
+            if (this.isCore) {
+                opacity += Math.sin(frame * this.speed) * 0.2;
+            } else {
+                if (this.isBlinker) {
+                    let flash = Math.pow(Math.sin(frame * this.twinkleSpeed + this.twinklePhase), 8);
+                    opacity += flash * 0.5;
+                } else {
+                    opacity += Math.sin(frame * this.twinkleSpeed + this.twinklePhase) * 0.05;
+                }
+            }
+            opacity = Math.max(0.05, Math.min(1, opacity));
+            
+            ctx.beginPath(); 
+            ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+            ctx.fillStyle = this.color + opacity + `)`;
+            if (this.isCore || (this.isBlinker && opacity > 0.5)) { 
+                ctx.shadowBlur = 6; 
+                ctx.shadowColor = 'rgba(255, 255, 255, 0.4)'; 
+            } else {
+                ctx.shadowBlur = 0;
+            }
+            ctx.fill(); 
+        }
+    }
+
+    function init() { 
+        width = window.innerWidth; height = window.innerHeight; 
+        canvas.width = width; canvas.height = height; stars = []; 
+        for(let i=0; i<300; i++) stars.push(new Star()); 
+        for(let i=0; i<14; i++) {
+            const centerX = width / 2 + (Math.random() - 0.5) * width * 1.5; 
+            const centerY = height / 2 + (Math.random() - 0.5) * height * 1.5;
+            const angle = Math.random() * Math.PI * 2; const scale = Math.random() * 2.0 + 1.2; 
+            ConstellationShapes[i].forEach(offset => {
+                const cosA = Math.cos(angle); const sinA = Math.sin(angle);
+                const rX = (offset[0] * cosA - offset[1] * sinA) * scale; 
+                const rY = (offset[0] * sinA + offset[1] * cosA) * scale;
+                stars.push(new Star(true, { x: centerX + rX, y: centerY + rY }, i));
+            });
+        }
+    }
+
+    function drawConstellationLines(ctx) {
+        ctx.lineWidth = 0.5; const groups = {};
+        stars.filter(s => s.isCore).forEach(s => { 
+            if(!groups[s.groupIndex]) groups[s.groupIndex] = []; 
+            groups[s.groupIndex].push(s); 
+        });
+        for(let g in groups) {
+            const p = groups[g]; 
+            ctx.strokeStyle = `rgba(255, 255, 255, 0.15)`; 
+            ctx.beginPath(); ctx.moveTo(p[0].x, p[0].y);
+            for(let i=1; i<p.length; i++) { ctx.lineTo(p[i].x, p[i].y); } ctx.stroke();
+        }
+    }
+
+    function animate() { 
+        ctx.clearRect(0, 0, width, height); frame++; 
+        ctx.save(); ctx.translate(width/2, height/2); ctx.rotate(frame * 0.0003); ctx.translate(-width/2, -height/2);
+        drawConstellationLines(ctx); stars.forEach(s => s.draw(ctx)); 
+        ctx.restore(); requestAnimationFrame(animate); 
+    }
+    window.addEventListener('resize', init); init(); animate();
+
+    // ================= 极简三方四正引擎 =================
+    const palaces = document.querySelectorAll('.palace');
+    const limitBtns = document.querySelectorAll('.limit-btn');
+
+    function highlightPalace(idx) {
+        palaces.forEach(el => { el.classList.remove('active'); el.classList.remove('trine'); });
+        const target = document.querySelector(`.palace[data-idx="${idx}"]`);
+        if(!target) return;
+        target.classList.add('active');
+        document.querySelector(`.palace[data-idx="${(idx + 6) % 12}"]`).classList.add('trine');
+        document.querySelector(`.palace[data-idx="${(idx + 4) % 12}"]`).classList.add('trine');
+        document.querySelector(`.palace[data-idx="${(idx + 8) % 12}"]`).classList.add('trine');
+    }
+
+    palaces.forEach(p => {
+        p.addEventListener('click', function() {
+            if(navigator.vibrate) navigator.vibrate(10);
+            const idx = parseInt(this.getAttribute('data-idx'));
+            highlightPalace(idx);
+            
+            const ageText = this.querySelector('.p-age').innerText;
+            limitBtns.forEach(btn => {
+                btn.classList.remove('active');
+                if(btn.getAttribute('data-age') === ageText) {
+                    btn.classList.add('active');
+                    btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                }
+            });
+        });
+    });
+
+    limitBtns.forEach(btn => {
+        btn.addEventListener('click', function() {
+            if(navigator.vibrate) navigator.vibrate(10);
+            limitBtns.forEach(c => c.classList.remove('active'));
+            this.classList.add('active');
+            this.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+            
+            const targetAge = this.getAttribute('data-age');
+            if(targetAge === "起限前") return; 
+            palaces.forEach(p => {
+                if(p.querySelector('.p-age').innerText === targetAge) {
+                    const idx = parseInt(p.getAttribute('data-idx'));
+                    highlightPalace(idx);
+                }
+            });
+        });
+    });
+</script>
+</body>
+</html>
