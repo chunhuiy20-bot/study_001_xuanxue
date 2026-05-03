@@ -28,6 +28,7 @@ struct RootView: View {
 
     @State private var scene: Scene = .splash
     @State private var navDirection: SceneNavDirection = .neutral
+    @State private var activeOracleSession: OracleSession = .preview
 
     var body: some View {
         ZStack {
@@ -82,7 +83,8 @@ struct RootView: View {
                             scene = .home
                         }
                     },
-                    onInterpretationRequested: {
+                    onInterpretationRequested: { session in
+                        activeOracleSession = session
                         navDirection = .forward
                         withAnimation(.easeInOut(duration: 0.6)) {
                             scene = .oracle
@@ -91,7 +93,7 @@ struct RootView: View {
                 )
                 .transition(sceneTransition)
             case .oracle:
-                OracleDecodeView {
+                OracleDecodeView(session: activeOracleSession) {
                     navDirection = .backward
                     withAnimation(.easeInOut(duration: 0.6)) {
                         scene = .casting

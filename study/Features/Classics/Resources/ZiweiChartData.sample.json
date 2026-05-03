@@ -1,0 +1,609 @@
+{
+  "meta": {
+    "label": "庚辰年正月十八日丑时 阳男",
+    "trueTime": {
+      "year": 2000,
+      "month": 2,
+      "day": 22,
+      "hour": 2,
+      "minute": 50
+    },
+    "lunar": {
+      "year": 2000,
+      "month": 1,
+      "day": 18,
+      "isLeap": false,
+      "hour": 3,
+      "minute": 40
+    },
+    "ganzhi": {
+      "year": {
+        "tg": "庚",
+        "dz": "辰",
+        "tgIdx": 6,
+        "dzIdx": 4
+      },
+      "month": {
+        "tg": "戊",
+        "dz": "寅",
+        "tgIdx": 4,
+        "dzIdx": 2
+      },
+      "day": {
+        "tg": "庚",
+        "dz": "戌",
+        "tgIdx": 6,
+        "dzIdx": 10
+      },
+      "hour": {
+        "tg": "丁",
+        "dz": "丑",
+        "tgIdx": 3,
+        "dzIdx": 1
+      }
+    },
+    "mingGong": {
+      "dzIdx": 1,
+      "dz": "丑",
+      "tg": "己"
+    },
+    "shenGong": {
+      "dzIdx": 3,
+      "dz": "卯",
+      "tg": "己"
+    },
+    "ju": 6,
+    "juName": "火六局",
+    "yinYang": "阳",
+    "gender": "男"
+  },
+  "palaces": [
+    {
+      "dz": "子",
+      "tg": "戊",
+      "name": "父母",
+      "isMing": false,
+      "isShen": false,
+      "mainStars": [
+        "武曲",
+        "天府"
+      ],
+      "auxStars": [],
+      "sihua": [
+        {
+          "star": "武曲",
+          "type": "quan"
+        }
+      ],
+      "daxian": {
+        "index": 12,
+        "startAge": 116,
+        "endAge": 125,
+        "dzIdx": 0,
+        "startYear": 2116,
+        "endYear": 2125
+      },
+      "liunianAges": [
+        12,
+        24,
+        36,
+        48,
+        60,
+        72,
+        84,
+        96,
+        108,
+        120
+      ]
+    },
+    {
+      "dz": "丑",
+      "tg": "己",
+      "name": "命宫",
+      "isMing": true,
+      "isShen": false,
+      "mainStars": [
+        "太阳",
+        "太阴"
+      ],
+      "auxStars": [
+        "天魁"
+      ],
+      "sihua": [
+        {
+          "star": "太阳",
+          "type": "lu"
+        },
+        {
+          "star": "太阴",
+          "type": "ke"
+        }
+      ],
+      "daxian": {
+        "index": 1,
+        "startAge": 6,
+        "endAge": 15,
+        "dzIdx": 1,
+        "startYear": 2006,
+        "endYear": 2015
+      },
+      "liunianAges": [
+        1,
+        13,
+        25,
+        37,
+        49,
+        61,
+        73,
+        85,
+        97,
+        109
+      ]
+    },
+    {
+      "dz": "寅",
+      "tg": "戊",
+      "name": "兄弟",
+      "isMing": false,
+      "isShen": false,
+      "mainStars": [
+        "贪狼"
+      ],
+      "auxStars": [
+        "火星",
+        "天马"
+      ],
+      "sihua": [],
+      "daxian": {
+        "index": 2,
+        "startAge": 16,
+        "endAge": 25,
+        "dzIdx": 2,
+        "startYear": 2016,
+        "endYear": 2025
+      },
+      "liunianAges": [
+        2,
+        14,
+        26,
+        38,
+        50,
+        62,
+        74,
+        86,
+        98,
+        110
+      ]
+    },
+    {
+      "dz": "卯",
+      "tg": "己",
+      "name": "夫妻",
+      "isMing": false,
+      "isShen": true,
+      "mainStars": [
+        "天机",
+        "巨门"
+      ],
+      "auxStars": [],
+      "sihua": [],
+      "daxian": {
+        "index": 3,
+        "startAge": 26,
+        "endAge": 35,
+        "dzIdx": 3,
+        "startYear": 2026,
+        "endYear": 2035
+      },
+      "liunianAges": [
+        3,
+        15,
+        27,
+        39,
+        51,
+        63,
+        75,
+        87,
+        99,
+        111
+      ]
+    },
+    {
+      "dz": "辰",
+      "tg": "庚",
+      "name": "子女",
+      "isMing": false,
+      "isShen": false,
+      "mainStars": [
+        "紫微",
+        "天相"
+      ],
+      "auxStars": [
+        "左辅",
+        "文曲"
+      ],
+      "sihua": [],
+      "daxian": {
+        "index": 4,
+        "startAge": 36,
+        "endAge": 45,
+        "dzIdx": 4,
+        "startYear": 2036,
+        "endYear": 2045
+      },
+      "liunianAges": [
+        4,
+        16,
+        28,
+        40,
+        52,
+        64,
+        76,
+        88,
+        100,
+        112
+      ]
+    },
+    {
+      "dz": "巳",
+      "tg": "辛",
+      "name": "财帛",
+      "isMing": false,
+      "isShen": false,
+      "mainStars": [
+        "天梁"
+      ],
+      "auxStars": [],
+      "sihua": [],
+      "daxian": {
+        "index": 5,
+        "startAge": 46,
+        "endAge": 55,
+        "dzIdx": 5,
+        "startYear": 2046,
+        "endYear": 2055
+      },
+      "liunianAges": [
+        5,
+        17,
+        29,
+        41,
+        53,
+        65,
+        77,
+        89,
+        101,
+        113
+      ]
+    },
+    {
+      "dz": "午",
+      "tg": "壬",
+      "name": "疾厄",
+      "isMing": false,
+      "isShen": false,
+      "mainStars": [
+        "七杀"
+      ],
+      "auxStars": [],
+      "sihua": [],
+      "daxian": {
+        "index": 6,
+        "startAge": 56,
+        "endAge": 65,
+        "dzIdx": 6,
+        "startYear": 2056,
+        "endYear": 2065
+      },
+      "liunianAges": [
+        6,
+        18,
+        30,
+        42,
+        54,
+        66,
+        78,
+        90,
+        102,
+        114
+      ]
+    },
+    {
+      "dz": "未",
+      "tg": "癸",
+      "name": "迁移",
+      "isMing": false,
+      "isShen": false,
+      "mainStars": [],
+      "auxStars": [
+        "陀罗",
+        "天钺"
+      ],
+      "sihua": [],
+      "daxian": {
+        "index": 7,
+        "startAge": 66,
+        "endAge": 75,
+        "dzIdx": 7,
+        "startYear": 2066,
+        "endYear": 2075
+      },
+      "liunianAges": [
+        7,
+        19,
+        31,
+        43,
+        55,
+        67,
+        79,
+        91,
+        103,
+        115
+      ]
+    },
+    {
+      "dz": "申",
+      "tg": "甲",
+      "name": "奴仆",
+      "isMing": false,
+      "isShen": false,
+      "mainStars": [
+        "廉贞"
+      ],
+      "auxStars": [
+        "禄存"
+      ],
+      "sihua": [],
+      "daxian": {
+        "index": 8,
+        "startAge": 76,
+        "endAge": 85,
+        "dzIdx": 8,
+        "startYear": 2076,
+        "endYear": 2085
+      },
+      "liunianAges": [
+        8,
+        20,
+        32,
+        44,
+        56,
+        68,
+        80,
+        92,
+        104,
+        116
+      ]
+    },
+    {
+      "dz": "酉",
+      "tg": "乙",
+      "name": "官禄",
+      "isMing": false,
+      "isShen": false,
+      "mainStars": [],
+      "auxStars": [
+        "擎羊"
+      ],
+      "sihua": [],
+      "daxian": {
+        "index": 9,
+        "startAge": 86,
+        "endAge": 95,
+        "dzIdx": 9,
+        "startYear": 2086,
+        "endYear": 2095
+      },
+      "liunianAges": [
+        9,
+        21,
+        33,
+        45,
+        57,
+        69,
+        81,
+        93,
+        105,
+        117
+      ]
+    },
+    {
+      "dz": "戌",
+      "tg": "丙",
+      "name": "田宅",
+      "isMing": false,
+      "isShen": false,
+      "mainStars": [
+        "破军"
+      ],
+      "auxStars": [
+        "右弼",
+        "文昌",
+        "铃星"
+      ],
+      "sihua": [],
+      "daxian": {
+        "index": 10,
+        "startAge": 96,
+        "endAge": 105,
+        "dzIdx": 10,
+        "startYear": 2096,
+        "endYear": 2105
+      },
+      "liunianAges": [
+        10,
+        22,
+        34,
+        46,
+        58,
+        70,
+        82,
+        94,
+        106,
+        118
+      ]
+    },
+    {
+      "dz": "亥",
+      "tg": "丁",
+      "name": "福德",
+      "isMing": false,
+      "isShen": false,
+      "mainStars": [
+        "天同"
+      ],
+      "auxStars": [
+        "地劫",
+        "地空"
+      ],
+      "sihua": [
+        {
+          "star": "天同",
+          "type": "ji"
+        }
+      ],
+      "daxian": {
+        "index": 11,
+        "startAge": 106,
+        "endAge": 115,
+        "dzIdx": 11,
+        "startYear": 2106,
+        "endYear": 2115
+      },
+      "liunianAges": [
+        11,
+        23,
+        35,
+        47,
+        59,
+        71,
+        83,
+        95,
+        107,
+        119
+      ]
+    }
+  ],
+  "sihua": {
+    "lu": {
+      "star": "太阳",
+      "pos": 1
+    },
+    "quan": {
+      "star": "武曲",
+      "pos": 0
+    },
+    "ke": {
+      "star": "太阴",
+      "pos": 1
+    },
+    "ji": {
+      "star": "天同",
+      "pos": 11
+    }
+  },
+  "liunian": {
+    "year": 2026,
+    "age": 27,
+    "dzIdx": 3,
+    "tg": "丙"
+  },
+  "limits": [
+    {
+      "index": 1,
+      "startAge": 6,
+      "endAge": 15,
+      "dzIdx": 1,
+      "startYear": 2006,
+      "endYear": 2015
+    },
+    {
+      "index": 2,
+      "startAge": 16,
+      "endAge": 25,
+      "dzIdx": 2,
+      "startYear": 2016,
+      "endYear": 2025
+    },
+    {
+      "index": 3,
+      "startAge": 26,
+      "endAge": 35,
+      "dzIdx": 3,
+      "startYear": 2026,
+      "endYear": 2035
+    },
+    {
+      "index": 4,
+      "startAge": 36,
+      "endAge": 45,
+      "dzIdx": 4,
+      "startYear": 2036,
+      "endYear": 2045
+    },
+    {
+      "index": 5,
+      "startAge": 46,
+      "endAge": 55,
+      "dzIdx": 5,
+      "startYear": 2046,
+      "endYear": 2055
+    },
+    {
+      "index": 6,
+      "startAge": 56,
+      "endAge": 65,
+      "dzIdx": 6,
+      "startYear": 2056,
+      "endYear": 2065
+    },
+    {
+      "index": 7,
+      "startAge": 66,
+      "endAge": 75,
+      "dzIdx": 7,
+      "startYear": 2066,
+      "endYear": 2075
+    },
+    {
+      "index": 8,
+      "startAge": 76,
+      "endAge": 85,
+      "dzIdx": 8,
+      "startYear": 2076,
+      "endYear": 2085
+    },
+    {
+      "index": 9,
+      "startAge": 86,
+      "endAge": 95,
+      "dzIdx": 9,
+      "startYear": 2086,
+      "endYear": 2095
+    },
+    {
+      "index": 10,
+      "startAge": 96,
+      "endAge": 105,
+      "dzIdx": 10,
+      "startYear": 2096,
+      "endYear": 2105
+    },
+    {
+      "index": 11,
+      "startAge": 106,
+      "endAge": 115,
+      "dzIdx": 11,
+      "startYear": 2106,
+      "endYear": 2115
+    },
+    {
+      "index": 12,
+      "startAge": 116,
+      "endAge": 125,
+      "dzIdx": 0,
+      "startYear": 2116,
+      "endYear": 2125
+    }
+  ]
+}

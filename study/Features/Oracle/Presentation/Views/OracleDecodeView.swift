@@ -21,9 +21,10 @@ struct OracleDecodeView: View {
     private let talismanBGColor = Color(red: 232.0 / 255.0, green: 211.0 / 255.0, blue: 153.0 / 255.0)
     private let talismanInkColor = Color(red: 163.0 / 255.0, green: 28.0 / 255.0, blue: 28.0 / 255.0)
 
-    private let oldHex: [YaoType] = [.yin, .yang, .yin, .yang, .yin, .yin]
-    private let newHex: [YaoType] = [.yin, .yin, .yin, .yang, .yin, .yin]
-    private let movingLineIndex = 1
+    private let session: OracleSession
+    private let oldHex: [YaoType]
+    private let newHex: [YaoType]
+    private let movingLineIndex: Int
 
     private let baguaNames = ["乾", "兑", "离", "震", "巽", "坎", "艮", "坤"]
     private let baguaTrigrams: [[Bool]] = [
@@ -74,7 +75,7 @@ struct OracleDecodeView: View {
     @State private var constellationGroups: [OracleConstellationGroup] = []
     @State private var canvasSize: CGSize = .zero
 
-    @State private var watermarkText = "解"
+    @State private var watermarkText = ""
     @State private var watermarkOpacity = 0.03
     @State private var watermarkScale: CGFloat = 1
 
@@ -83,7 +84,7 @@ struct OracleDecodeView: View {
     @State private var oldHexOpacity = 1.0
     @State private var oldHexBlur: CGFloat = 0
     @State private var oldHexScaleX: CGFloat = 1
-    @State private var centerNameText = "雷水解"
+    @State private var centerNameText = ""
     @State private var centerNameColor = Color.white
     @State private var centerNameOpacity = 1.0
 
@@ -126,6 +127,16 @@ struct OracleDecodeView: View {
     @State private var phantomTask: Task<Void, Never>?
     @State private var transformTask: Task<Void, Never>?
     @State private var askTask: Task<Void, Never>?
+
+    init(session: OracleSession = .preview, onBack: @escaping () -> Void) {
+        self.session = session
+        self.onBack = onBack
+        self.oldHex = session.originalLines.map { $0 ? .yang : .yin }
+        self.newHex = session.changedLines.map { $0 ? .yang : .yin }
+        self.movingLineIndex = session.movingLineIndex
+        _watermarkText = State(initialValue: session.originalHexagram.name)
+        _centerNameText = State(initialValue: session.originalHexagram.displayName)
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -321,7 +332,7 @@ struct OracleDecodeView: View {
             Spacer()
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .center, spacing: 14) {
-                    Text("震为雷")
+                    Text(session.changedHexagram.displayName)
                         .font(.system(size: 40, weight: .regular, design: .serif))
                         .tracking(6)
                         .foregroundStyle(goldColor)
@@ -595,7 +606,7 @@ struct OracleDecodeView: View {
                         }
                         .padding(.bottom, 4)
 
-                        Text("震为雷")
+                        Text(session.changedHexagram.displayName)
                             .font(.system(size: 14, weight: .bold, design: .serif))
                             .tracking(2)
                             .foregroundStyle(talismanInkColor)
@@ -876,7 +887,7 @@ struct OracleDecodeView: View {
                 isTypingAI = false
             }
 
-            let aiAnswer = "天机解析：你问的“\(question)”，结合本卦【雷水解】与变卦【震为雷】来看，你目前正处于破局的关键节点。水之阴寒已被雷之暴烈劈开。无需再犹豫，保持震雷般的果断，你所求之事将在接下来的一旬内迎来实质性转机。宜行事，忌优柔。"
+            let aiAnswer = "天机解析：你问的“\(question)”，结合本卦【\(session.originalHexagram.displayName)】与变卦【\(session.changedHexagram.displayName)】来看，当前局势的关键在于顺势而动、守正应变。宜把握主线，不宜反复摇摆；先解结，再推进，转机正在形成。"
             await decodeText(text: aiAnswer, delayNanoseconds: 800_000_000, target: .ai)
         }
     }
@@ -1059,7 +1070,7 @@ struct OracleDecodeView: View {
 
             try? await Task.sleep(nanoseconds: 700_000_000)
             await MainActor.run {
-                centerNameText = "震为雷"
+                centerNameText = session.changedHexagram.displayName
                 centerNameColor = goldColor
                 withAnimation(.easeInOut(duration: 0.4)) {
                     centerNameOpacity = 1
@@ -1081,8 +1092,8 @@ struct OracleDecodeView: View {
         descRendered = ""
         descGibberish = ""
 
-        let quote = "「田获三狐，得黄矢，贞吉。」"
-        let desc = "天机初步推演：雷水解变震为雷。冰雪消融，雷霆万钧。过去之阻碍已尽数瓦解，正是雷厉风行、直击核心之时。"
+        let quote = "「本卦：\(session.originalHexagram.displayName)；变卦：\(session.changedHexagram.displayName)。」"
+        let desc = "天机初步推演：\(session.originalHexagram.displayName) 变 \(session.changedHexagram.displayName)。\(session.changedHexagram.meaning)。"
 
         await decodeText(text: quote, delayNanoseconds: 200_000_000, target: .quote)
         await decodeText(text: desc, delayNanoseconds: 400_000_000, target: .desc)
@@ -1465,5 +1476,5 @@ private struct OracleSeededGenerator: RandomNumberGenerator {
 }
 
 #Preview {
-    OracleDecodeView(onBack: {})
+    OracleDecodeView(session: .preview, onBack: {})
 }

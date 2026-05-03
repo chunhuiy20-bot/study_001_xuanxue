@@ -42,7 +42,7 @@ struct HexagramCastingView: View {
     ]
 
     let onBack: (() -> Void)?
-    let onInterpretationRequested: () -> Void
+    let onInterpretationRequested: (OracleSession) -> Void
 
     @State private var startTime = Date()
     @State private var subtitleText = "放空思绪 · 长按太极聚气"
@@ -57,6 +57,7 @@ struct HexagramCastingView: View {
 
     @State private var showQiArea = true
     @State private var showResult = false
+    @State private var oracleSession: OracleSession?
 
     @State private var phantomGlyphs: [PhantomGlyph] = []
     @State private var stars: [CastingDustParticle] = []
@@ -69,7 +70,7 @@ struct HexagramCastingView: View {
 
     init(
         onBack: (() -> Void)? = nil,
-        onInterpretationRequested: @escaping () -> Void = {}
+        onInterpretationRequested: @escaping (OracleSession) -> Void = { _ in }
     ) {
         self.onBack = onBack
         self.onInterpretationRequested = onInterpretationRequested
@@ -183,14 +184,16 @@ struct HexagramCastingView: View {
 
             if showResult {
                 VStack(spacing: 18) {
-                    Text("雷 水 解")
+                    Text(resultHexagramTitle)
                         .font(.system(size: 30, weight: .regular, design: .serif))
                         .tracking(8)
                         .foregroundStyle(.white)
                         .shadow(color: .white.opacity(0.35), radius: 12)
 
                     Button {
-                        onInterpretationRequested()
+                        if let oracleSession {
+                            onInterpretationRequested(oracleSession)
+                        }
                     } label: {
                         Text("断 卦")
                             .font(.system(size: 15, weight: .semibold, design: .serif))
@@ -205,10 +208,15 @@ struct HexagramCastingView: View {
                             )
                     }
                     .buttonStyle(.plain)
+                    .disabled(oracleSession == nil)
                 }
                 .transition(.opacity)
             }
         }
+    }
+
+    private var resultHexagramTitle: String {
+        oracleSession?.originalHexagram.displayName ?? "卦 象 未 定"
     }
 
     private func yaoLine(isYang: Bool, isMoving: Bool) -> some View {
@@ -394,6 +402,7 @@ struct HexagramCastingView: View {
         if revealedLineCount == 0 {
             generatedLines = (0..<6).map { _ in Bool.random() }
             movingIndex = Int.random(in: 0..<6)
+            oracleSession = nil
             showResult = false
         }
 
@@ -473,6 +482,10 @@ struct HexagramCastingView: View {
         progressTask?.cancel()
         decayTask?.cancel()
         stopPhantomLoop(clearGlyphs: true)
+        oracleSession = IChingHexagramCatalog.makeSession(
+            originalLines: generatedLines,
+            movingLineIndex: movingIndex
+        )
 
         withAnimation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.8)) {
             showQiArea = false
