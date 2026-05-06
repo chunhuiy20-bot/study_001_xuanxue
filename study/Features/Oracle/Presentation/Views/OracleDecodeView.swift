@@ -127,6 +127,7 @@ struct OracleDecodeView: View {
     @State private var phantomTask: Task<Void, Never>?
     @State private var transformTask: Task<Void, Never>?
     @State private var askTask: Task<Void, Never>?
+    @State private var aiStreamTask: Task<Void, Never>?
 
     init(session: OracleSession = .preview, onBack: @escaping () -> Void) {
         self.session = session
@@ -226,9 +227,11 @@ struct OracleDecodeView: View {
                 phantomTask?.cancel()
                 transformTask?.cancel()
                 askTask?.cancel()
+                aiStreamTask?.cancel()
                 phantomTask = nil
                 transformTask = nil
                 askTask = nil
+                aiStreamTask = nil
             }
         }
     }
@@ -703,34 +706,39 @@ struct OracleDecodeView: View {
     }
 
     private func aiResponseView(size: CGSize) -> some View {
-        VStack(spacing: 20) {
+        let responseMaxHeight = min(size.height * 0.45, 360)
+
+        return VStack(spacing: 20) {
             Text("· \(aiEchoText) ·")
                 .font(.system(size: 20, weight: .regular, design: .serif))
                 .italic()
                 .foregroundStyle(.white.opacity(0.8))
 
-            HStack(alignment: .top, spacing: 0) {
-                Text(aiResponseRendered)
-                    .font(.system(size: 18, weight: .regular, design: .serif))
-                    .foregroundStyle(.white)
-                    .lineSpacing(8)
-
-                if isTypingAI, aiResponseGibberish.isEmpty == false {
-                    Text(aiResponseGibberish)
-                        .font(.system(size: 18, weight: .regular, design: .monospaced))
-                        .foregroundStyle(goldColor.opacity(0.7))
+            ScrollView(.vertical, showsIndicators: true) {
+                HStack(alignment: .top, spacing: 0) {
+                    Text(aiResponseRendered)
+                        .font(.system(size: 18, weight: .regular, design: .serif))
+                        .foregroundStyle(.white)
                         .lineSpacing(8)
-                }
 
-                if isTypingAI {
-                    Rectangle()
-                        .fill(goldColor)
-                        .frame(width: 8, height: 18)
-                        .padding(.top, 4)
-                        .padding(.leading, 4)
+                    if isTypingAI, aiResponseGibberish.isEmpty == false {
+                        Text(aiResponseGibberish)
+                            .font(.system(size: 18, weight: .regular, design: .monospaced))
+                            .foregroundStyle(goldColor.opacity(0.7))
+                            .lineSpacing(8)
+                    }
+
+                    if isTypingAI {
+                        Rectangle()
+                            .fill(goldColor)
+                            .frame(width: 8, height: 18)
+                            .padding(.top, 4)
+                            .padding(.leading, 4)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: responseMaxHeight, alignment: .top)
             .padding(20)
             .background(.white.opacity(0.03))
             .overlay(
@@ -782,6 +790,8 @@ struct OracleDecodeView: View {
     private func openAskLayer() {
         guard askLayerActive == false else { return }
         askTask?.cancel()
+        aiStreamTask?.cancel()
+        aiStreamTask = nil
         askTitle = "上 达 天 听"
         askTitleOpacity = 1
         askInput = ""
@@ -806,6 +816,8 @@ struct OracleDecodeView: View {
 
     private func closeAskLayer() {
         askTask?.cancel()
+        aiStreamTask?.cancel()
+        aiStreamTask = nil
         askTask = nil
         withAnimation(.easeInOut(duration: 0.35)) {
             askLayerActive = false
@@ -884,11 +896,87 @@ struct OracleDecodeView: View {
                 aiResponseVisible = false
                 aiResponseRendered = ""
                 aiResponseGibberish = ""
-                isTypingAI = false
+                isTypingAI = true
             }
 
-            let aiAnswer = "天机解析：你问的“\(question)”，结合本卦【\(session.originalHexagram.displayName)】与变卦【\(session.changedHexagram.displayName)】来看，当前局势的关键在于顺势而动、守正应变。宜把握主线，不宜反复摇摆；先解结，再推进，转机正在形成。"
-            await decodeText(text: aiAnswer, delayNanoseconds: 800_000_000, target: .ai)
+            await streamAIAnswer(question: question)
+        }
+    }
+
+    private func streamAIAnswer(question: String) async {
+        guard let config = try? AIConfigProvider.current() else {
+            await MainActor.run {
+                aiResponseVisible = true
+                isTypingAI = false
+                aiResponseRendered = "未检测到可用 AI 配置，请先在“我”页面完成 Base URL、API Key 和模型配置。"
+            }
+            return
+        }
+
+        guard let model = config.model?.trimmingCharacters(in: .whitespacesAndNewlines), model.isEmpty == false else {
+            await MainActor.run {
+                aiResponseVisible = true
+                isTypingAI = false
+                aiResponseRendered = "未选择模型，请先在“我”页面测试连通并选择可用模型。"
+            }
+            return
+        }
+
+        let userPrompt = """
+        请基于以下卦象上下文，解答用户的问题。
+        卦象上下文：
+        - 本卦：\(session.originalHexagram.displayName)（\(session.originalHexagram.name)，第\(session.originalHexagram.index)卦，意涵：\(session.originalHexagram.meaning)）
+        - 变卦：\(session.changedHexagram.displayName)（\(session.changedHexagram.name)，第\(session.changedHexagram.index)卦，意涵：\(session.changedHexagram.meaning)）
+        - 动爻序号（自下而上，0基）：\(session.movingLineIndex)
+        
+        用户的问题是：\(question)
+        """
+
+        await MainActor.run {
+            aiResponseVisible = true
+            isTypingAI = true
+            aiResponseRendered = ""
+        }
+
+        let task = Task {
+            do {
+                let finishReason = try await OpenAICompatibleStreamer.streamChatCompletion(
+                    baseURL: config.baseURL,
+                    apiKey: config.apiKey,
+                    model: model,
+                    messages: [
+                        ["role": "user", "content": userPrompt]
+                    ],
+                    temperature: 0.7
+                ) { token in
+                    await MainActor.run {
+                        aiResponseRendered += token
+                    }
+                }
+
+                await MainActor.run {
+                    isTypingAI = false
+                    if aiResponseRendered.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        aiResponseRendered = "天机未显：模型返回为空，请稍后重试。"
+                    } else if finishReason == "length" {
+                        aiResponseRendered += "\n\n（本次回复触发长度上限，若需完整解读可继续追问“请续写”。）"
+                    }
+                }
+            } catch is CancellationError {
+                await MainActor.run {
+                    isTypingAI = false
+                }
+            } catch {
+                await MainActor.run {
+                    isTypingAI = false
+                    let description = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    aiResponseRendered = "天机受阻：\(description)"
+                }
+            }
+        }
+
+        await MainActor.run {
+            aiStreamTask = task
         }
     }
 

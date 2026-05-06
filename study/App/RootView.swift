@@ -6,6 +6,7 @@ struct RootView: View {
         case home
         case archives
         case classics
+        case me
         case casting
         case oracle
     }
@@ -20,6 +21,7 @@ struct RootView: View {
         case home
         case archives
         case classics
+        case me
     }
 
     private let navBackgroundColor = Color.black
@@ -44,7 +46,7 @@ struct RootView: View {
                     }
                 }
                 .transition(sceneTransition)
-            case .home, .archives, .classics:
+            case .home, .archives, .classics, .me:
                 ZStack {
                     DivinationHomeView(
                         onCastingRequested: {
@@ -71,6 +73,10 @@ struct RootView: View {
                     JingAstrolabeView()
                         .opacity(scene == .classics ? 1 : 0)
                         .allowsHitTesting(scene == .classics)
+
+                    ProfileMeView()
+                        .opacity(scene == .me ? 1 : 0)
+                        .allowsHitTesting(scene == .me)
                 }
                 .padding(.bottom, globalBottomInset)
                 .animation(.easeInOut(duration: 0.22), value: scene)
@@ -138,6 +144,8 @@ struct RootView: View {
             return .archives
         case .classics:
             return .classics
+        case .me:
+            return .me
         default:
             return nil
         }
@@ -172,7 +180,13 @@ struct RootView: View {
                     scene = .classics
                 }
             }
-            fixedNavItem(title: "我", active: false, action: nil)
+            fixedNavItem(title: "我", active: activeTab == .me) {
+                guard scene != .me else { return }
+                navDirection = .forward
+                withAnimation(.easeInOut(duration: 0.24)) {
+                    scene = .me
+                }
+            }
         }
         .frame(height: 85)
         .padding(.bottom, 20)

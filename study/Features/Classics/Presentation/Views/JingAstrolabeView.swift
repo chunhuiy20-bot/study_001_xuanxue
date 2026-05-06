@@ -208,7 +208,7 @@ private struct JingHTMLWebView: UIViewRepresentable {
 
     private var loadSignature: String {
         // Bump this when JS behavior changes to force a full reload of local HTML.
-        "jing-empty-state-v13"
+        "jing-empty-state-v17"
     }
 
     func makeUIView(context: Context) -> WKWebView {
@@ -405,11 +405,9 @@ private struct JingHTMLWebView: UIViewRepresentable {
 
           function closeCenterOracleEffect() {
             const overlay = document.getElementById('codex-oracle-overlay');
-            const stage = document.getElementById('codex-oracle-stage');
-            const loader = document.getElementById('codex-bagua-loader');
-            if (!overlay || !stage || !loader) return;
-            stage.classList.remove('active');
-            loader.classList.add('codex-rotating');
+            const book = document.querySelector('.codex-book-frame');
+            if (!overlay) return;
+            if (book) { book.style.opacity = '0'; }
             setTimeout(() => {
               overlay.style.display = 'none';
             }, 260);
@@ -453,29 +451,37 @@ private struct JingHTMLWebView: UIViewRepresentable {
             const viewport = document.getElementById('codex-oracle-scroll');
             if (!overlay || !stage || !loader || !book || !content) return;
 
+            const hub = document.querySelector('.center-hub');
+            const grid = document.querySelector('.grid-12');
+            let centerY = window.innerHeight * 0.5;
+            if (hub) {
+              const r = hub.getBoundingClientRect();
+              centerY = r.top + r.height / 2;
+            } else if (grid) {
+              const r = grid.getBoundingClientRect();
+              const rowH = r.height / 4;
+              centerY = r.top + rowH * 1.5 + rowH;
+            }
+
             content.innerHTML = buildOracleColumns(currentChart);
             if (viewport) viewport.scrollLeft = 0;
             overlay.style.display = 'flex';
             stage.classList.remove('active');
             loader.classList.add('codex-rotating');
 
-            const safeTop = Math.max(64, Math.round(window.innerHeight * 0.12));
-            const loaderTop = safeTop;
-            const bookTop = safeTop;
-            loader.style.top = `${loaderTop}px`;
-            book.style.top = `${bookTop}px`;
+            loader.style.top = (centerY - 90) + 'px';
+            loader.style.transform = '';
+            book.style.top = centerY + 'px';
+            book.style.transform = 'translateX(-50%) rotateX(10deg) scale(0.8) translateY(-50%)';
             loader.style.bottom = 'auto';
             book.style.bottom = 'auto';
-            requestAnimationFrame(() => {
-              showOraclePositionDebug(
-                Math.round(loader.getBoundingClientRect().top),
-                Math.round(book.getBoundingClientRect().top)
-              );
-            });
 
             setTimeout(() => {
               loader.classList.remove('codex-rotating');
-              stage.classList.add('active');
+              loader.style.transform = 'scale(0) rotate(-720deg)';
+              loader.style.opacity = '0';
+              book.style.opacity = '1';
+              book.style.transform = 'translateX(-50%) rotateX(0deg) scale(1) translateY(-50%)';
             }, 1200);
           }
 
@@ -486,11 +492,12 @@ private struct JingHTMLWebView: UIViewRepresentable {
               const style = document.createElement('style');
               style.id = styleId;
               style.textContent = `
-                .codex-oracle-overlay{position:fixed;inset:0;z-index:1500;background:rgba(0,0,0,0.92);display:none;align-items:center;justify-content:center;padding:14px;}
-                .codex-main-stage{position:relative;width:100%;height:100%;perspective:1000px;}
-                .codex-bagua-loader{position:fixed;left:50%;top:0;width:180px;height:180px;z-index:4;transform:translateX(-50%);transition:all 1.2s cubic-bezier(0.7,0,0.3,1);}
-                .codex-bagua-ring{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;border:1px solid rgba(230,211,163,0.65);border-radius:50%;}
-                .codex-bagua-glyph{position:absolute;color:var(--c-gold);font-size:18px;text-shadow:0 0 10px rgba(230,211,163,0.45);}
+                .codex-oracle-overlay{position:fixed;inset:0;z-index:1500;background:transparent;display:none;align-items:center;justify-content:center;padding:14px;}
+                .codex-oracle-overlay::before{content:'';position:absolute;inset:0;pointer-events:none;background:radial-gradient(circle at 50% 44%, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.46) 32%, rgba(0,0,0,0.2) 62%, rgba(0,0,0,0.02) 86%, rgba(0,0,0,0) 100%);}
+                .codex-main-stage{position:relative;width:100%;height:100%;perspective:1000px;z-index:1;}
+                .codex-bagua-loader{position:fixed;left:50%;margin-left:-90px;width:180px;height:180px;z-index:4;transition:all 1.2s cubic-bezier(0.7,0,0.3,1);}
+                .codex-bagua-ring{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;border:1px dashed rgba(255,255,255,0.45);border-radius:50%;}
+                .codex-bagua-glyph{position:absolute;color:rgba(248,248,248,0.92);font-size:18px;text-shadow:0 0 10px rgba(255,255,255,0.28);}
                 .codex-bagua-glyph.g0{transform:translate(0,-76px);}
                 .codex-bagua-glyph.g1{transform:translate(54px,-54px);}
                 .codex-bagua-glyph.g2{transform:translate(76px,0);}
@@ -501,22 +508,20 @@ private struct JingHTMLWebView: UIViewRepresentable {
                 .codex-bagua-glyph.g7{transform:translate(-54px,-54px);}
                 .codex-rotating{animation:codexRotate 2s linear infinite;}
                 @keyframes codexRotate{
-                  from{transform:translateX(-50%) rotate(0deg);}
-                  to{transform:translateX(-50%) rotate(-360deg);}
+                  from{transform:rotate(0deg);}
+                  to{transform:rotate(-360deg);}
                 }
-                .codex-book-frame{position:fixed;left:50%;top:0;width:min(90%,860px);height:min(62vh,500px);opacity:0;transform:translateX(-50%) rotateX(10deg) scale(0.8) translateY(50px);transition:all 1.5s ease-out;display:flex;flex-direction:column;align-items:center;}
+                .codex-book-frame{position:fixed;left:50%;width:min(90%,860px);height:min(62vh,500px);opacity:0;transform:translateX(-50%) rotateX(10deg) scale(0.8) translateY(-50%);transition:all 1.5s ease-out;display:flex;flex-direction:column;align-items:center;}
                 .codex-book-bg{position:absolute;width:100%;height:100%;background:#0d0d0d;border:1px solid rgba(230,211,163,0.42);box-shadow:0 0 50px rgba(0,0,0,0.9),inset 0 0 100px rgba(230,211,163,0.1);border-radius:8px;overflow:hidden;}
                 .codex-book-bg::before{content:'';position:absolute;inset:0;opacity:.09;background-image:radial-gradient(rgba(230,211,163,.7) 1px,transparent 1px);background-size:42px 42px;}
-                .codex-scroll-viewport{position:relative;width:90%;height:85%;margin-top:5%;overflow-x:auto;overflow-y:hidden;display:flex;scroll-behavior:smooth;mask-image:linear-gradient(to right,transparent,black 5%,black 95%,transparent);-webkit-mask-image:linear-gradient(to right,transparent,black 5%,black 95%,transparent);}
+                .codex-scroll-viewport{position:relative;width:90%;height:85%;margin-top:5%;overflow-x:hidden;overflow-y:auto;display:block;scroll-behavior:smooth;mask-image:linear-gradient(to bottom,transparent,black 6%,black 94%,transparent);-webkit-mask-image:linear-gradient(to bottom,transparent,black 6%,black 94%,transparent);}
                 .codex-scroll-viewport::-webkit-scrollbar{display:none;}
-                .codex-data-content{display:flex;writing-mode:vertical-rl;padding:20px 40px;gap:56px;}
-                .codex-data-column{display:flex;flex-direction:column;gap:14px;height:100%;}
-                .codex-data-column h2{color:var(--c-gold);font-size:24px;border-left:1px solid rgba(230,211,163,0.75);padding-left:8px;margin:0;white-space:nowrap;}
-                .codex-data-column p{color:#cfcfcf;font-size:17px;line-height:1.8;letter-spacing:2px;width:320px;}
+                .codex-data-content{display:flex;flex-direction:column;padding:20px 16px 26px;gap:18px;writing-mode:horizontal-tb;}
+                .codex-data-column{display:flex;flex-direction:column;gap:10px;}
+                .codex-data-column h2{color:var(--c-gold);font-size:24px;border-bottom:1px solid rgba(230,211,163,0.75);padding-bottom:6px;margin:0;white-space:normal;letter-spacing:1px;}
+                .codex-data-column p{color:#cfcfcf;font-size:17px;line-height:1.75;letter-spacing:1px;width:auto;}
                 .codex-nav-hint{position:absolute;bottom:18px;color:var(--c-gold);font-size:12px;letter-spacing:2px;opacity:.65;animation:codexBreath 2s infinite;}
                 @keyframes codexBreath{0%,100%{opacity:.35}50%{opacity:.8}}
-                .codex-main-stage.active .codex-bagua-loader{transform:translateX(-50%) scale(0) rotate(-720deg);opacity:0;}
-                .codex-main-stage.active .codex-book-frame{opacity:1;transform:translateX(-50%) rotateX(0deg) scale(1) translateY(0);}
                 .codex-close-btn{position:absolute;right:12px;top:12px;height:34px;padding:0 14px;border:1px solid rgba(230,211,163,0.55);background:rgba(0,0,0,0.45);color:var(--c-gold);border-radius:18px;font-family:var(--font-serif);letter-spacing:2px;font-size:12px;cursor:pointer;z-index:6;}
               `;
               (document.head || document.documentElement).appendChild(style);
@@ -524,21 +529,23 @@ private struct JingHTMLWebView: UIViewRepresentable {
 
             const overlay = document.createElement('div');
             overlay.id = 'codex-oracle-overlay';
+            overlay.className = 'codex-oracle-overlay';
             overlay.innerHTML = `
               <div class=\"codex-main-stage\" id=\"codex-oracle-stage\">
                 <button class=\"codex-close-btn\" id=\"codex-oracle-close\">返回命盘</button>
                 <div class=\"codex-bagua-loader codex-rotating\" id=\"codex-bagua-loader\">
                   <div class=\"codex-bagua-ring\">
-                    <span class=\"codex-bagua-glyph g0\">☰</span><span class=\"codex-bagua-glyph g1\">☱</span>
-                    <span class=\"codex-bagua-glyph g2\">☲</span><span class=\"codex-bagua-glyph g3\">☴</span>
-                    <span class=\"codex-bagua-glyph g4\">☷</span><span class=\"codex-bagua-glyph g5\">☶</span>
-                    <span class=\"codex-bagua-glyph g6\">☵</span><span class=\"codex-bagua-glyph g7\">☳</span>
+                    <span class=\"codex-bagua-glyph g0\">☰</span><span class=\"codex-bagua-glyph g1\">☴</span>
+                    <span class=\"codex-bagua-glyph g2\">☵</span><span class=\"codex-bagua-glyph g3\">☶</span>
+                    <span class=\"codex-bagua-glyph g4\">☷</span><span class=\"codex-bagua-glyph g5\">☳</span>
+                    <span class=\"codex-bagua-glyph g6\">☲</span><span class=\"codex-bagua-glyph g7\">☱</span>
                   </div>
-                  <svg viewBox=\"0 0 100 100\" style=\"position:absolute;inset:34px;width:112px;height:112px;\">
-                    <circle cx=\"50\" cy=\"50\" r=\"48\" fill=\"none\" stroke=\"#d4af37\" stroke-width=\"0.6\" />
-                    <path d=\"M 50 5 A 22.5 22.5 0 0 1 50 50 A 22.5 22.5 0 0 0 50 95 A 45 45 0 0 1 50 5\" fill=\"#d4af37\" />
-                    <circle cx=\"50\" cy=\"27.5\" r=\"4\" fill=\"#050505\" />
-                    <circle cx=\"50\" cy=\"72.5\" r=\"4\" fill=\"#d4af37\" />
+                  <svg viewBox=\"0 0 100 100\" style=\"position:absolute;inset:31px;width:118px;height:118px;\">
+                    <circle cx=\"50\" cy=\"50\" r=\"46\" fill=\"#f7f7f7\" />
+                    <path d=\"M50 4 A46 46 0 0 1 50 96 A23 23 0 0 0 50 50 A23 23 0 0 1 50 4Z\" fill=\"#0d0d0d\" />
+                    <circle cx=\"50\" cy=\"27\" r=\"6\" fill=\"#f7f7f7\" />
+                    <circle cx=\"50\" cy=\"73\" r=\"6\" fill=\"#0d0d0d\" />
+                    <circle cx=\"50\" cy=\"50\" r=\"46\" fill=\"none\" stroke=\"rgba(255,255,255,0.72)\" stroke-width=\"1.1\" />
                   </svg>
                 </div>
                 <div class=\"codex-book-frame\">
@@ -546,7 +553,7 @@ private struct JingHTMLWebView: UIViewRepresentable {
                   <div class=\"codex-scroll-viewport\" id=\"codex-oracle-scroll\">
                     <div class=\"codex-data-content\" id=\"codex-oracle-content\"></div>
                   </div>
-                  <div class=\"codex-nav-hint\">〈 左右滑动 · 拨动命盘 〉</div>
+                  <div class=\"codex-nav-hint\">〈 上下滑动 · 拨动命盘 〉</div>
                 </div>
               </div>
             `;
@@ -565,10 +572,8 @@ private struct JingHTMLWebView: UIViewRepresentable {
             const scrollBox = document.getElementById('codex-oracle-scroll');
             if (scrollBox) {
               scrollBox.addEventListener('wheel', (event) => {
-                if (Math.abs(event.deltaY) >= Math.abs(event.deltaX)) {
-                  event.preventDefault();
-                  scrollBox.scrollLeft += event.deltaY;
-                }
+                event.preventDefault();
+                scrollBox.scrollTop += event.deltaY;
               }, { passive: false });
             }
           }
