@@ -923,13 +923,13 @@ struct OracleDecodeView: View {
         }
 
         let userPrompt = """
-        请基于以下卦象上下文，解答用户的问题。
+        这是我占卜得到的卦象，
         卦象上下文：
-        - 本卦：\(session.originalHexagram.displayName)（\(session.originalHexagram.name)，第\(session.originalHexagram.index)卦，意涵：\(session.originalHexagram.meaning)）
-        - 变卦：\(session.changedHexagram.displayName)（\(session.changedHexagram.name)，第\(session.changedHexagram.index)卦，意涵：\(session.changedHexagram.meaning)）
+        - 本卦：\(session.originalHexagram.displayName)（\(session.originalHexagram.name)
+        - 变卦：\(session.changedHexagram.displayName)（\(session.changedHexagram.name)
         - 动爻序号（自下而上，0基）：\(session.movingLineIndex)
         
-        用户的问题是：\(question)
+        结合卦象帮我分析问题：\(question)
         """
 
         await MainActor.run {
