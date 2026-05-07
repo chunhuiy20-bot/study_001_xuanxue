@@ -70,7 +70,7 @@ struct RootView: View {
                     .opacity(scene == .archives ? 1 : 0)
                     .allowsHitTesting(scene == .archives)
 
-                    JingAstrolabeView()
+                    JingAstrolabeView(isActive: scene == .classics)
                         .opacity(scene == .classics ? 1 : 0)
                         .allowsHitTesting(scene == .classics)
 

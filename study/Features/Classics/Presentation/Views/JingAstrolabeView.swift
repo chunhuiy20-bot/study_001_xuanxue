@@ -2,6 +2,19 @@ import SwiftUI
 import WebKit
 
 struct JingAstrolabeView: View {
+    let isActive: Bool
+
+    private struct ProfileDropdownItem: Codable {
+        let id: String
+        let name: String
+    }
+
+    private struct ChartBootstrapPayload: Codable {
+        let selectedProfileID: String?
+        let profiles: [ProfileDropdownItem]
+        let chartMap: [String: String]
+    }
+
     private let backgroundColor = Color(red: 2.0 / 255.0, green: 3.0 / 255.0, blue: 8.0 / 255.0)
     private let constellationShapes: [[CGPoint]] = [
         [CGPoint(x: 0, y: 0), CGPoint(x: 15, y: 20)],
@@ -38,47 +51,94 @@ struct JingAstrolabeView: View {
     @State private var stars: [JingDustParticle] = []
     @State private var constellationGroups: [JingConstellationGroup] = []
     @State private var canvasSize: CGSize = .zero
+    @State private var webReloadVersion = 0
 
-    private var chartDataBase64: String? { nil }
+    private var bootstrapPayload: ChartBootstrapPayload {
+        let profiles = ChartProfileStore.shared.load()
+        var chartMap: [String: String] = [:]
+        for profile in profiles {
+            if let snapshot = ChartResultStore.shared.latest(for: profile.id) {
+                chartMap[profile.id] = snapshot.chartJSON
+            }
+        }
+
+        let selectedProfileID = profiles.first(where: { chartMap[$0.id] != nil })?.id ?? profiles.first?.id
+
+        return ChartBootstrapPayload(
+            selectedProfileID: selectedProfileID,
+            profiles: profiles.map { ProfileDropdownItem(id: $0.id, name: $0.name) },
+            chartMap: chartMap
+        )
+    }
+
+    private var chartDataBase64: String? {
+        guard
+            let selected = bootstrapPayload.selectedProfileID,
+            let json = bootstrapPayload.chartMap[selected]
+        else {
+            return nil
+        }
+        return Data(json.utf8).base64EncodedString()
+    }
+
+    private var bootstrapDataBase64: String {
+        let encoder = JSONEncoder()
+        guard
+            let data = try? encoder.encode(bootstrapPayload),
+            let text = String(data: data, encoding: .utf8)
+        else {
+            return ""
+        }
+        return Data(text.utf8).base64EncodedString()
+    }
 
     var body: some View {
         GeometryReader { proxy in
-            TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: false)) { timeline in
-                let elapsed = max(0, timeline.date.timeIntervalSince(startTime))
+            ZStack {
+                backgroundColor
+                    .ignoresSafeArea()
 
-                ZStack {
-                    backgroundColor
-                        .ignoresSafeArea()
-
+                TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: false)) { timeline in
+                    let elapsed = max(0, timeline.date.timeIntervalSince(startTime))
                     starField(size: proxy.size, elapsed: elapsed)
                         .ignoresSafeArea()
+                }
 
-                    Rectangle()
-                        .fill(.white.opacity(0.03))
-                        .blendMode(.overlay)
-                        .ignoresSafeArea()
-                        .allowsHitTesting(false)
+                Rectangle()
+                    .fill(.white.opacity(0.03))
+                    .blendMode(.overlay)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
 
-                    if let htmlURL = Bundle.main.url(forResource: "JingAstrolabePage", withExtension: "html") {
-                        JingHTMLWebView(htmlURL: htmlURL, chartDataBase64: chartDataBase64)
-                            .background(Color.clear)
-                    } else {
-                        VStack(spacing: 10) {
-                            Text("经页面加载失败")
-                                .font(.system(size: 18, weight: .semibold, design: .serif))
-                                .foregroundStyle(.white)
-                            Text("未找到 JingAstrolabePage.html")
-                                .font(.system(size: 13, weight: .regular, design: .monospaced))
-                                .foregroundStyle(.white.opacity(0.6))
-                        }
+                if let htmlURL = Bundle.main.url(forResource: "JingAstrolabePage", withExtension: "html") {
+                    JingHTMLWebView(
+                        htmlURL: htmlURL,
+                        chartDataBase64: chartDataBase64,
+                        bootstrapDataBase64: bootstrapDataBase64,
+                        reloadVersion: webReloadVersion
+                    )
+                        .background(Color.clear)
+                } else {
+                    VStack(spacing: 10) {
+                        Text("经页面加载失败")
+                            .font(.system(size: 18, weight: .semibold, design: .serif))
+                            .foregroundStyle(.white)
+                        Text("未找到 JingAstrolabePage.html")
+                            .font(.system(size: 13, weight: .regular, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.6))
                     }
                 }
-                .onAppear {
-                    startTime = Date()
-                    refreshStarsIfNeeded(for: proxy.size)
-                }
-                .onChange(of: proxy.size) { _, newSize in
-                    refreshStarsIfNeeded(for: newSize)
+            }
+            .onAppear {
+                startTime = Date()
+                refreshStarsIfNeeded(for: proxy.size)
+            }
+            .onChange(of: proxy.size) { _, newSize in
+                refreshStarsIfNeeded(for: newSize)
+            }
+            .onChange(of: isActive) { _, active in
+                if active {
+                    webReloadVersion += 1
                 }
             }
         }
@@ -197,22 +257,163 @@ struct JingAstrolabeView: View {
 private struct JingHTMLWebView: UIViewRepresentable {
     let htmlURL: URL
     let chartDataBase64: String?
+    let bootstrapDataBase64: String?
+    let reloadVersion: Int
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
 
-    final class Coordinator {
+    final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         var lastLoadSignature: String?
+        var lastReloadVersion: Int?
+        var pendingBootstrapDataBase64: String?
+        var pendingChartDataBase64: String?
+        var hasLoadedPage = false
+        var lastAppliedKey: String?
+
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard message.name == "chartStore" else { return }
+            guard let body = message.body as? [String: Any] else { return }
+            guard let action = body["action"] as? String else { return }
+
+            if action == "saveChart" {
+                guard let payload = body["payload"] as? [String: Any] else { return }
+                let profile = parseProfile(from: payload["profile"])
+                guard let profile else { return }
+                ChartProfileStore.shared.save(profile)
+
+                guard let chartObject = payload["chart"] else { return }
+                guard JSONSerialization.isValidJSONObject(chartObject) else { return }
+                guard let chartData = try? JSONSerialization.data(withJSONObject: chartObject, options: []) else { return }
+                guard let chartJSON = String(data: chartData, encoding: .utf8) else { return }
+
+                ChartResultStore.shared.saveLatest(profileId: profile.id, chartJSON: chartJSON)
+                return
+            }
+
+            if action == "deleteProfile" {
+                guard let payload = body["payload"] as? [String: Any] else { return }
+                let profileID = stringValue(payload["profileId"]).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard profileID.isEmpty == false else { return }
+                ChartProfileStore.shared.remove(id: profileID)
+                ChartResultStore.shared.remove(profileId: profileID)
+            }
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            hasLoadedPage = true
+            lastAppliedKey = nil
+            applyBootstrap(to: webView)
+        }
+
+        func applyBootstrap(to webView: WKWebView) {
+            let bootstrapRaw = pendingBootstrapDataBase64 ?? ""
+            let chartRaw = pendingChartDataBase64 ?? ""
+            let key = "\(bootstrapRaw.count)|\(chartRaw.count)|\(bootstrapRaw)|\(chartRaw)"
+            if lastAppliedKey == key { return }
+            lastAppliedKey = key
+
+            let bootstrap = jsonLiteral(bootstrapRaw)
+            let chart = jsonLiteral(chartRaw)
+            let script = "window.__codexApplyBootstrap(\(bootstrap), \(chart));"
+            webView.evaluateJavaScript(script, completionHandler: nil)
+        }
+
+        private func jsonLiteral(_ value: String) -> String {
+            let data = try? JSONEncoder().encode(value)
+            guard let data, let json = String(data: data, encoding: .utf8) else {
+                return "\"\""
+            }
+            return json
+        }
+
+        private func parseProfile(from value: Any?) -> ChartProfile? {
+            guard let payload = value as? [String: Any] else { return nil }
+
+            let name = stringValue(payload["name"]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard name.isEmpty == false else { return nil }
+
+            guard
+                let year = intValue(payload["year"]),
+                let month = intValue(payload["month"]),
+                let day = intValue(payload["day"]),
+                let hour = intValue(payload["hour"]),
+                let minute = intValue(payload["minute"]),
+                let longitude = doubleValue(payload["longitude"])
+            else {
+                return nil
+            }
+
+            let gender = stringValue(payload["gender"]).uppercased() == "F" ? "F" : "M"
+            let now = Date()
+
+            if let existing = ChartProfileStore.shared.load().first(where: {
+                $0.name == name &&
+                $0.year == year &&
+                $0.month == month &&
+                $0.day == day &&
+                $0.hour == hour &&
+                $0.minute == minute &&
+                abs($0.longitude - longitude) < 0.000_001 &&
+                $0.gender == gender
+            }) {
+                return ChartProfile(
+                    id: existing.id,
+                    name: name,
+                    year: year,
+                    month: month,
+                    day: day,
+                    hour: hour,
+                    minute: minute,
+                    longitude: longitude,
+                    gender: gender,
+                    createdAt: existing.createdAt,
+                    updatedAt: now
+                )
+            }
+
+            return ChartProfile(
+                name: name,
+                year: year,
+                month: month,
+                day: day,
+                hour: hour,
+                minute: minute,
+                longitude: longitude,
+                gender: gender,
+                createdAt: now,
+                updatedAt: now
+            )
+        }
+
+        private func intValue(_ value: Any?) -> Int? {
+            if let number = value as? NSNumber { return number.intValue }
+            if let string = value as? String, let int = Int(string) { return int }
+            return nil
+        }
+
+        private func doubleValue(_ value: Any?) -> Double? {
+            if let number = value as? NSNumber { return number.doubleValue }
+            if let string = value as? String, let double = Double(string) { return double }
+            return nil
+        }
+
+        private func stringValue(_ value: Any?) -> String {
+            if let string = value as? String { return string }
+            if let number = value as? NSNumber { return number.stringValue }
+            return ""
+        }
     }
 
     private var loadSignature: String {
         // Bump this when JS behavior changes to force a full reload of local HTML.
-        "jing-empty-state-v17"
+        "jing-empty-state-v19"
     }
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
+        config.userContentController.add(context.coordinator, name: "chartStore")
         let script = WKUserScript(
             source: buildInjectionScript(),
             injectionTime: .atDocumentStart,
@@ -221,6 +422,7 @@ private struct JingHTMLWebView: UIViewRepresentable {
         config.userContentController.addUserScript(script)
 
         let webView = WKWebView(frame: .zero, configuration: config)
+        webView.navigationDelegate = context.coordinator
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
@@ -233,17 +435,34 @@ private struct JingHTMLWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
+        context.coordinator.pendingBootstrapDataBase64 = bootstrapDataBase64
+        context.coordinator.pendingChartDataBase64 = chartDataBase64
+
+        if context.coordinator.lastReloadVersion != reloadVersion {
+            context.coordinator.lastReloadVersion = reloadVersion
+            context.coordinator.lastLoadSignature = nil
+            context.coordinator.lastAppliedKey = nil
+        }
         if context.coordinator.lastLoadSignature != loadSignature {
             context.coordinator.lastLoadSignature = loadSignature
             webView.loadFileURL(htmlURL, allowingReadAccessTo: htmlURL.deletingLastPathComponent())
         }
+        if context.coordinator.hasLoadedPage {
+            context.coordinator.applyBootstrap(to: webView)
+        }
+    }
+
+    static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "chartStore")
     }
 
     private func buildInjectionScript() -> String {
         let dataPart = chartDataBase64 ?? ""
+        let bootstrapPart = bootstrapDataBase64 ?? ""
         return """
         (function() {
           const DATA_B64 = '\(dataPart)';
+          const BOOTSTRAP_B64 = '\(bootstrapPart)';
           const TG = ['甲','乙','丙','丁','戊','己','庚','辛','壬','癸'];
           const DZ = ['子','丑','寅','卯','辰','巳','午','未','申','酉','戌','亥'];
           const EOT = [-3, -14, -8, 0, 3, 2, -3, -6, -8, 16, 14, 2];
@@ -298,6 +517,7 @@ private struct JingHTMLWebView: UIViewRepresentable {
             '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十'];
           const PALACE_NAMES = ['命宫','兄弟','夫妻','子女','财帛','疾厄','迁移','奴仆','官禄','田宅','福德','父母'];
           let currentChart = null;
+          let hasNativeStoreBridge = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.chartStore);
           let toneAudio = null;
 
           function text(el, value) {
@@ -320,9 +540,196 @@ private struct JingHTMLWebView: UIViewRepresentable {
             }
           }
 
+          function bootstrapFromBase64() {
+            if (!BOOTSTRAP_B64) return null;
+            try {
+              const binary = atob(BOOTSTRAP_B64);
+              const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+              const jsonText = new TextDecoder('utf-8').decode(bytes);
+              return JSON.parse(jsonText);
+            } catch (error) {
+              return null;
+            }
+          }
+
           function showToastSafe(message) {
             if (typeof window.showToast === 'function') {
               window.showToast(message);
+            }
+          }
+
+          function renderProfileDropdown(bootstrap, selectedProfileID) {
+            const dropdown = document.getElementById('userDropdown');
+            if (!dropdown) return;
+
+            const profiles = Array.isArray(bootstrap?.profiles) ? bootstrap.profiles : [];
+            const items = profiles.map((profile) => {
+              const activeClass = profile.id === selectedProfileID ? ' active' : '';
+              const safeName = String(profile.name || '未命名');
+              return `<div class=\"u-item${activeClass}\" data-profile-id=\"${profile.id}\">${safeName}</div>`;
+            }).join('');
+
+            dropdown.innerHTML = `
+              ${items}
+              ${items ? '<div class=\"u-divider\"></div>' : ''}
+              <div class=\"u-add\" id=\"btnAddNew\">＋ 建立新命盘</div>
+            `;
+
+            dropdown.querySelectorAll('.u-item[data-profile-id]').forEach((item) => {
+              item.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const profileId = item.getAttribute('data-profile-id');
+                if (!profileId) return;
+                const chart = bootstrap?.chartMap?.[profileId];
+                if (!chart) {
+                  showToastSafe('该命盘暂无快照');
+                  return;
+                }
+                const chartObj = typeof chart === 'string' ? JSON.parse(chart) : chart;
+                currentChart = chartObj;
+                applyChart(chartObj);
+                const currentName = document.getElementById('currentUserName');
+                if (currentName) currentName.textContent = String(item.textContent || '未命名');
+                const selector = document.getElementById('userSelector');
+                if (selector) selector.classList.remove('open');
+                renderProfileDropdown(bootstrap, profileId);
+              }, false);
+
+              if (item.getAttribute('data-profile-id') === selectedProfileID) {
+                let pressTimer = null;
+                let longPressed = false;
+
+                const startLongPress = (event) => {
+                  if (event) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }
+                  clearTimeout(pressTimer);
+                  longPressed = false;
+                  pressTimer = setTimeout(() => {
+                    longPressed = true;
+                    const profileId = item.getAttribute('data-profile-id');
+                    const profileName = String(item.textContent || '未命名');
+                    if (!profileId) return;
+                    openDeleteConfirm(bootstrap, profileId, profileName);
+                  }, 550);
+                };
+
+                const cancelLongPress = () => {
+                  clearTimeout(pressTimer);
+                };
+
+                item.addEventListener('mousedown', startLongPress, false);
+                item.addEventListener('touchstart', startLongPress, { passive: false });
+                item.addEventListener('mouseup', cancelLongPress, false);
+                item.addEventListener('mouseleave', cancelLongPress, false);
+                item.addEventListener('touchend', cancelLongPress, false);
+                item.addEventListener('touchcancel', cancelLongPress, false);
+
+                item.addEventListener('click', (event) => {
+                  if (longPressed) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    return;
+                  }
+                }, true);
+              }
+            });
+
+            const btnAddNew = document.getElementById('btnAddNew');
+            if (btnAddNew) {
+              btnAddNew.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                openCreatePanel();
+              }, false);
+            }
+          }
+
+          function openDeleteConfirm(bootstrap, profileId, profileName) {
+            const old = document.getElementById('codex-delete-profile-modal');
+            if (old && old.parentNode) old.parentNode.removeChild(old);
+
+            const overlay = document.createElement('div');
+            overlay.id = 'codex-delete-profile-modal';
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:1300;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;padding:20px;';
+            overlay.innerHTML = `
+              <div style="width:min(420px,100%);background:rgba(10,10,10,0.96);border:1px solid rgba(230,211,163,0.35);border-radius:12px;padding:18px 16px;backdrop-filter:blur(10px);">
+                <div style="color:var(--c-gold);font-size:1rem;letter-spacing:1px;margin-bottom:8px;">确认删除命盘</div>
+                <div style="color:var(--c-white);font-size:0.9rem;line-height:1.6;word-break:break-word;">确定删除「${profileName}」吗？</div>
+                <div style="color:var(--c-gray);font-size:0.76rem;margin-top:6px;">删除后无法恢复。</div>
+                <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;">
+                  <button id="codex-delete-cancel" style="height:34px;padding:0 16px;background:transparent;border:1px solid rgba(255,255,255,0.22);border-radius:6px;color:var(--c-gray);">取消</button>
+                  <button id="codex-delete-confirm" style="height:34px;padding:0 16px;background:#a73737;border:none;border-radius:6px;color:#fff;font-weight:700;">删除</button>
+                </div>
+              </div>
+            `;
+            document.body.appendChild(overlay);
+
+            const close = () => {
+              if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+            };
+
+            overlay.addEventListener('click', (event) => {
+              if (event.target === overlay) close();
+            }, false);
+
+            const cancelBtn = document.getElementById('codex-delete-cancel');
+            if (cancelBtn) cancelBtn.addEventListener('click', close, false);
+
+            const confirmBtn = document.getElementById('codex-delete-confirm');
+            if (confirmBtn) {
+              confirmBtn.addEventListener('click', () => {
+                postToNativeStore({
+                  action: 'deleteProfile',
+                  payload: { profileId }
+                });
+
+                if (bootstrap?.chartMap) delete bootstrap.chartMap[profileId];
+                if (Array.isArray(bootstrap?.profiles)) {
+                  bootstrap.profiles = bootstrap.profiles.filter((profile) => profile && profile.id !== profileId);
+                }
+
+                const nextProfile = Array.isArray(bootstrap?.profiles) && bootstrap.profiles.length
+                  ? bootstrap.profiles[0]
+                  : null;
+
+                if (nextProfile && bootstrap?.chartMap?.[nextProfile.id]) {
+                  try {
+                    const nextChart = typeof bootstrap.chartMap[nextProfile.id] === 'string'
+                      ? JSON.parse(bootstrap.chartMap[nextProfile.id])
+                      : bootstrap.chartMap[nextProfile.id];
+                    currentChart = nextChart;
+                    applyChart(nextChart);
+                    const currentName = document.getElementById('currentUserName');
+                    if (currentName) currentName.textContent = String(nextProfile.name || '未命名');
+                    bootstrap.selectedProfileID = nextProfile.id;
+                    renderProfileDropdown(bootstrap, nextProfile.id);
+                  } catch (error) {
+                    currentChart = null;
+                    clearChartDisplay();
+                    bootstrap.selectedProfileID = null;
+                    renderProfileDropdown(bootstrap, null);
+                  }
+                } else {
+                  currentChart = null;
+                  clearChartDisplay();
+                  bootstrap.selectedProfileID = null;
+                  renderProfileDropdown(bootstrap, null);
+                }
+
+                close();
+                showToastSafe('命盘已删除');
+              }, false);
+            }
+          }
+
+          function postToNativeStore(payload) {
+            if (!hasNativeStoreBridge) return;
+            try {
+              window.webkit.messageHandlers.chartStore.postMessage(payload);
+            } catch (error) {
             }
           }
 
@@ -988,7 +1395,33 @@ private struct JingHTMLWebView: UIViewRepresentable {
                 chart.meta.ownerName = name;
                 currentChart = chart;
                 applyChart(chart);
+                postToNativeStore({
+                  action: 'saveChart',
+                  payload: {
+                    profile: {
+                      name,
+                      year,
+                      month,
+                      day,
+                      hour,
+                      minute,
+                      longitude,
+                      gender
+                    },
+                    chart
+                  }
+                });
                 root.style.display = 'none';
+                const bootstrap = bootstrapFromBase64();
+                if (bootstrap) {
+                  if (!Array.isArray(bootstrap.profiles)) bootstrap.profiles = [];
+                  if (!bootstrap.chartMap || typeof bootstrap.chartMap !== 'object') bootstrap.chartMap = {};
+                  const profileId = `profile_${Date.now()}`;
+                  bootstrap.profiles.unshift({ id: profileId, name });
+                  bootstrap.chartMap[profileId] = chart;
+                  bootstrap.selectedProfileID = profileId;
+                  renderProfileDropdown(bootstrap, profileId);
+                }
                 showToastSafe(`命盘已生成：${name}`);
               } catch (error) {
                 showToastSafe('命盘计算失败，请检查输入');
@@ -1328,7 +1761,6 @@ private struct JingHTMLWebView: UIViewRepresentable {
               nav.parentNode.removeChild(nav);
             }
 
-            document.querySelectorAll('.u-item').forEach((item) => item.remove());
             const selector = document.getElementById('userSelector');
             if (selector) selector.classList.remove('open');
 
@@ -1339,13 +1771,95 @@ private struct JingHTMLWebView: UIViewRepresentable {
             lockTimelineHorizontalOnly();
             bindPalaceToneHandlers();
             bindCenterHubEffect();
-            currentChart = null;
-            clearChartDisplay();
+            const bootstrap = bootstrapFromBase64();
+            const selectedProfileID = bootstrap?.selectedProfileID || null;
+            const profileList = Array.isArray(bootstrap?.profiles) ? bootstrap.profiles : [];
+            const selectedProfile = profileList.find((profile) => profile && profile.id === selectedProfileID) || profileList[0] || null;
+            const selectedChartRaw = selectedProfile?.id ? bootstrap?.chartMap?.[selectedProfile.id] : null;
+            let selectedChart = null;
+            if (selectedChartRaw) {
+              try {
+                selectedChart = typeof selectedChartRaw === 'string'
+                  ? JSON.parse(selectedChartRaw)
+                  : selectedChartRaw;
+              } catch (error) {
+                selectedChart = null;
+              }
+            }
+
+            if (!selectedChart) {
+              const fallback = chartFromBase64();
+              if (fallback && fallback.meta) {
+                selectedChart = fallback;
+              }
+            }
+
+            if (selectedChart && selectedChart.meta) {
+              currentChart = selectedChart;
+              applyChart(selectedChart);
+            } else {
+              currentChart = null;
+              clearChartDisplay();
+            }
+
+            const currentUserName = document.getElementById('currentUserName');
+            if (currentUserName) {
+              currentUserName.textContent = selectedProfile?.name || '未创建';
+            }
+            renderProfileDropdown(bootstrap, selectedProfile?.id || null);
             setTimeout(setupCreateButton, 0);
             setTimeout(setupCreateButton, 200);
             setTimeout(lockTimelineHorizontalOnly, 0);
             setTimeout(bindCenterHubEffect, 0);
           }
+
+          window.__codexApplyBootstrap = function(bootstrapB64, chartB64) {
+            try {
+              let bootstrap = null;
+              if (bootstrapB64) {
+                const b = atob(bootstrapB64);
+                const bytes = Uint8Array.from(b, (char) => char.charCodeAt(0));
+                const jsonText = new TextDecoder('utf-8').decode(bytes);
+                bootstrap = JSON.parse(jsonText);
+              }
+
+              let chart = null;
+              if (chartB64) {
+                const b = atob(chartB64);
+                const bytes = Uint8Array.from(b, (char) => char.charCodeAt(0));
+                const jsonText = new TextDecoder('utf-8').decode(bytes);
+                chart = JSON.parse(jsonText);
+              }
+
+              const selectedProfileID = bootstrap?.selectedProfileID || null;
+              const profileList = Array.isArray(bootstrap?.profiles) ? bootstrap.profiles : [];
+              const selectedProfile = profileList.find((profile) => profile && profile.id === selectedProfileID) || profileList[0] || null;
+              const selectedChartRaw = selectedProfile?.id ? bootstrap?.chartMap?.[selectedProfile.id] : null;
+              let selectedChart = null;
+              if (selectedChartRaw) {
+                selectedChart = typeof selectedChartRaw === 'string'
+                  ? JSON.parse(selectedChartRaw)
+                  : selectedChartRaw;
+              } else if (chart && chart.meta) {
+                selectedChart = chart;
+              }
+
+              if (selectedChart && selectedChart.meta) {
+                currentChart = selectedChart;
+                applyChart(selectedChart);
+              } else {
+                currentChart = null;
+                clearChartDisplay();
+              }
+
+              const currentUserName = document.getElementById('currentUserName');
+              if (currentUserName) {
+                currentUserName.textContent = selectedProfile?.name || '未创建';
+              }
+              renderProfileDropdown(bootstrap, selectedProfile?.id || null);
+            } catch (error) {
+            }
+          };
 
           apply();
           document.addEventListener('DOMContentLoaded', apply, { once: true });
@@ -1358,6 +1872,8 @@ private struct JingHTMLWebView: UIViewRepresentable {
 private struct JingHTMLWebView: View {
     let htmlURL: URL
     let chartDataBase64: String?
+    let bootstrapDataBase64: String?
+    let reloadVersion: Int
 
     var body: some View {
         Text("当前平台不支持网页渲染")
@@ -1397,5 +1913,5 @@ private struct JingSeededGenerator: RandomNumberGenerator {
 }
 
 #Preview {
-    JingAstrolabeView()
+    JingAstrolabeView(isActive: true)
 }

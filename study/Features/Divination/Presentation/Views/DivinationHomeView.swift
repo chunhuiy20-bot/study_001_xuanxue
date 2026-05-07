@@ -56,6 +56,7 @@ struct DivinationHomeView: View {
     @State private var rippleScale: CGFloat = 1
     @State private var rippleOpacity = 0.0
     @State private var pendingNavigationTask: Task<Void, Never>?
+    @State private var latestRecord: AkashicRecord?
 
     init(
         onCastingRequested: @escaping () -> Void = {},
@@ -108,8 +109,14 @@ struct DivinationHomeView: View {
             .onAppear {
                 startTime = Date()
                 refreshParticlesIfNeeded(for: proxy.size)
+                refreshLatestRecord()
                 runEntranceAnimation()
                 startEngineLoop()
+            }
+            .onChange(of: isActive) { _, active in
+                if active {
+                    refreshLatestRecord()
+                }
             }
             .onDisappear {
                 engineTask?.cancel()
@@ -330,11 +337,11 @@ struct DivinationHomeView: View {
         VStack(spacing: showsEmbeddedBottomNav ? 24 : 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("最近一占 · 昨夜")
+                    Text(latestTimeText)
                         .font(.system(size: 13, weight: .regular, design: .serif))
                         .foregroundStyle(textSubColor)
 
-                    Text("本卦 同人 变 大有")
+                    Text(latestSummaryText)
                         .font(.system(size: 22, weight: .medium, design: .serif))
                         .tracking(1.5)
                         .foregroundStyle(.white)
@@ -342,7 +349,7 @@ struct DivinationHomeView: View {
 
                 Spacer()
 
-                Text("䷌")
+                Text(latestHexSymbol)
                     .font(.system(size: 30, weight: .regular, design: .serif))
                     .foregroundStyle(goldColor.opacity(0.9))
             }
@@ -530,6 +537,54 @@ struct DivinationHomeView: View {
             pendingNavigationTask = nil
         }
     }
+
+    private var latestTimeText: String {
+        guard let latestRecord else { return "最近一占 · 暂无" }
+        return "最近一占 · \(relativeTimeText(from: latestRecord.createdAt))"
+    }
+
+    private var latestSummaryText: String {
+        guard let latestRecord else { return "暂无占卜记录" }
+        return "本卦 \(latestRecord.originalHexagram.name) 变 \(latestRecord.changedHexagram.name)"
+    }
+
+    private var latestHexSymbol: String {
+        latestRecord?.originalHexagram.symbol ?? "䷿"
+    }
+
+    private func refreshLatestRecord() {
+        latestRecord = AkashicRecordStore.shared.load().first
+    }
+
+    private func relativeTimeText(from date: Date) -> String {
+        let interval = Date().timeIntervalSince(date)
+        if interval < 60 {
+            return "刚刚"
+        }
+        if interval < 3600 {
+            return "\(Int(interval / 60))分钟前"
+        }
+        if interval < 86400 {
+            return "\(Int(interval / 3600))小时前"
+        }
+        if interval < 172800 {
+            return "昨天"
+        }
+        if interval < 604800 {
+            return "\(Int(interval / 86400))天前"
+        }
+        return DivinationDateFormatters.short.string(from: date)
+    }
+}
+
+private enum DivinationDateFormatters {
+    static let short: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.timeZone = TimeZone.current
+        formatter.dateFormat = "MM-dd"
+        return formatter
+    }()
 }
 
 private struct TaijiCenterView: View {
