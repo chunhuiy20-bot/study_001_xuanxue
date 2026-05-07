@@ -556,7 +556,7 @@ struct OracleDecodeView: View {
 
             VStack {
                 HStack {
-                    Button(action: closeAskLayer) {
+                    Button(action: onBack) {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 18, weight: .semibold))
                             .foregroundStyle(subColor)
@@ -961,6 +961,7 @@ struct OracleDecodeView: View {
                     } else if finishReason == "length" {
                         aiResponseRendered += "\n\n（本次回复触发长度上限，若需完整解读可继续追问“请续写”。）"
                     }
+                    persistAkashicRecord(question: question, verdict: aiResponseRendered)
                 }
             } catch is CancellationError {
                 await MainActor.run {
@@ -971,6 +972,7 @@ struct OracleDecodeView: View {
                     isTypingAI = false
                     let description = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                     aiResponseRendered = "天机受阻：\(description)"
+                    persistAkashicRecord(question: question, verdict: aiResponseRendered)
                 }
             }
         }
@@ -978,6 +980,14 @@ struct OracleDecodeView: View {
         await MainActor.run {
             aiStreamTask = task
         }
+    }
+
+    private func persistAkashicRecord(question: String, verdict: String) {
+        let cleanedQuestion = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanedVerdict = verdict.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard cleanedQuestion.isEmpty == false, cleanedVerdict.isEmpty == false else { return }
+        let record = AkashicRecord.make(from: session, question: cleanedQuestion, verdict: cleanedVerdict)
+        AkashicRecordStore.shared.append(record)
     }
 
     @MainActor
@@ -1115,7 +1125,12 @@ struct OracleDecodeView: View {
 
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             await MainActor.run {
-                watermarkText = "震"
+                let changedName = session.changedHexagram.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let first = changedName.first {
+                    watermarkText = String(first)
+                } else {
+                    watermarkText = String(session.changedHexagram.displayName.prefix(1))
+                }
                 withAnimation(.timingCurve(0.25, 1, 0.5, 1, duration: 1.0)) {
                     watermarkOpacity = 0.03
                     watermarkScale = 1

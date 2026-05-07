@@ -49,7 +49,7 @@ struct ArchiveRecordsView: View {
     @State private var constellationGroups: [ArchiveConstellationGroup] = []
     @State private var canvasSize: CGSize = .zero
 
-    @State private var tokens: [ArchiveToken] = ArchiveToken.makeInitial()
+    @State private var tokens: [ArchiveToken] = []
     @State private var currentAngle = 0.0
     @State private var dragStartAngle = 0.0
     @State private var dragStartPoint: CGPoint?
@@ -151,10 +151,16 @@ struct ArchiveRecordsView: View {
             .onAppear {
                 startTime = Date()
                 refreshStarsIfNeeded(for: proxy.size)
+                reloadTokensFromStore()
                 startAutoDriftLoop()
             }
             .onChange(of: proxy.size) { _, newSize in
                 refreshStarsIfNeeded(for: newSize)
+            }
+            .onChange(of: isActive) { _, active in
+                if active {
+                    reloadTokensFromStore()
+                }
             }
             .onDisappear {
                 driftTask?.cancel()
@@ -659,6 +665,7 @@ struct ArchiveRecordsView: View {
             _ = withAnimation(.easeInOut(duration: 0.25)) {
                 tokens.remove(at: removalIndex)
             }
+            AkashicRecordStore.shared.remove(id: token.id)
 
             if tokens.count < 18 {
                 tokens.append(makeDummyToken())
@@ -734,6 +741,46 @@ struct ArchiveRecordsView: View {
             hexSymbol: String(scalar),
             name: "虚空残影",
             record: nil
+        )
+    }
+
+    private func reloadTokensFromStore() {
+        let records = AkashicRecordStore.shared.load()
+        var mapped = records.map { stored in
+            let record = makeArchiveRecord(from: stored)
+            return ArchiveToken(id: record.id, hexSymbol: record.hex1Sym, name: record.hex1Name, record: record)
+        }
+
+        while mapped.count < 27 {
+            mapped.append(makeDummyToken())
+        }
+
+        tokens = mapped
+
+        if tokens.isEmpty {
+            currentAngle = 0
+            return
+        }
+
+        let index = min(activeIndex, tokens.count - 1)
+        currentAngle = -Double(index) * anglePerItem
+    }
+
+    private func makeArchiveRecord(from stored: AkashicRecord) -> ArchiveRecord {
+        let modern = ArchiveDateFormatters.modern.string(from: stored.createdAt)
+        return ArchiveRecord(
+            id: stored.id,
+            dateAncient: "第\(stored.movingLineIndex + 1)爻动",
+            dateModern: modern,
+            status: stored.status,
+            question: stored.question,
+            hex1Sym: stored.originalHexagram.symbol,
+            hex1Name: stored.originalHexagram.displayName,
+            hex1Lines: stored.originalHexagram.lines,
+            hex2Sym: stored.changedHexagram.symbol,
+            hex2Name: stored.changedHexagram.displayName,
+            hex2Lines: stored.changedHexagram.lines,
+            verdict: stored.verdict
         )
     }
 
@@ -1065,73 +1112,16 @@ private struct ArchiveToken: Identifiable {
     let record: ArchiveRecord?
 
     var isDummy: Bool { record == nil }
+}
 
-    static func makeInitial() -> [ArchiveToken] {
-        let real: [ArchiveRecord] = [
-            ArchiveRecord(
-                id: "1",
-                dateAncient: "丙辰月 戊戌日 巳时",
-                dateModern: "2026-04-23 10:15",
-                status: "已解",
-                question: "下半年的事业是否会迎来转机，需不需要跳槽？而且如果我长篇大论问了很多很多很多很多问题，这里会不会自动换行呢？",
-                hex1Sym: "䷧",
-                hex1Name: "雷水解",
-                hex1Lines: [false, false, true, false, true, false],
-                hex2Sym: "䷲",
-                hex2Name: "震为雷",
-                hex2Lines: [false, false, true, false, false, true],
-                verdict: "雷霆万钧，困局将破。摒弃杂念，直击核心，无需优柔寡断，必有大成。"
-            ),
-            ArchiveRecord(
-                id: "2",
-                dateAncient: "丙辰月 丁酉日 辰时",
-                dateModern: "2026-04-22 08:30",
-                status: "已解",
-                question: "最近总是心神不宁，家里的风水布局是否有问题？",
-                hex1Sym: "䷌",
-                hex1Name: "天火同人",
-                hex1Lines: [true, true, true, true, false, true],
-                hex2Sym: "䷍",
-                hex2Name: "火天大有",
-                hex2Lines: [true, false, true, true, true, true],
-                verdict: "同人转大有，阳气极盛。非风水之过，乃近期思虑过盛所致，宜多静心休养。"
-            ),
-            ArchiveRecord(
-                id: "3",
-                dateAncient: "乙卯月 辛亥日 子时",
-                dateModern: "2026-03-15 23:45",
-                status: "待叩问",
-                question: "近期财运如何？",
-                hex1Sym: "䷁",
-                hex1Name: "坤为地",
-                hex1Lines: [false, false, false, false, false, false],
-                hex2Sym: "䷖",
-                hex2Name: "山地剥",
-                hex2Lines: [true, false, false, false, false, false],
-                verdict: "天机未显，无法解读。"
-            )
-        ]
-
-        var result = real.map {
-            ArchiveToken(id: $0.id, hexSymbol: $0.hex1Sym, name: $0.hex1Name, record: $0)
-        }
-
-        var generator = ArchiveSeededGenerator(state: 0xAA55AA55)
-        for idx in 0..<27 {
-            let value = Int.random(in: 0..<64, using: &generator)
-            let scalar = UnicodeScalar(0x4DC0 + value) ?? "䷀"
-            result.append(
-                ArchiveToken(
-                    id: "dummy-\(idx)",
-                    hexSymbol: String(scalar),
-                    name: "天机残卷",
-                    record: nil
-                )
-            )
-        }
-
-        return result
-    }
+private enum ArchiveDateFormatters {
+    static let modern: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.timeZone = TimeZone.current
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return formatter
+    }()
 }
 
 private struct ArchiveDustStar {
