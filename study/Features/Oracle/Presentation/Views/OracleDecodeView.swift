@@ -930,6 +930,8 @@ struct OracleDecodeView: View {
         - 动爻序号（自下而上，0基）：\(session.movingLineIndex)
         
         结合卦象帮我分析问题：\(question)
+
+        请用纯文本输出，不要使用 Markdown 格式（不要用 #、**、*、- 等符号），只用普通文字、换行和标点符号。
         """
 
         await MainActor.run {

@@ -271,11 +271,21 @@ private struct JingHTMLWebView: UIViewRepresentable {
         var pendingChartDataBase64: String?
         var hasLoadedPage = false
         var lastAppliedKey: String?
+        weak var webView: WKWebView?
+        var aiStreamTask: Task<Void, Never>?
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             guard message.name == "chartStore" else { return }
             guard let body = message.body as? [String: Any] else { return }
             guard let action = body["action"] as? String else { return }
+
+            if action == "analyzeChart" {
+                guard let payload = body["payload"] as? [String: Any] else { return }
+                let ownerName = (payload["ownerName"] as? String) ?? "命主"
+                let chartJSON = (payload["chartJSON"] as? String) ?? ""
+                startChartAnalysis(ownerName: ownerName, chartJSON: chartJSON)
+                return
+            }
 
             if action == "saveChart" {
                 guard let payload = body["payload"] as? [String: Any] else { return }
@@ -404,6 +414,201 @@ private struct JingHTMLWebView: UIViewRepresentable {
             if let number = value as? NSNumber { return number.stringValue }
             return ""
         }
+
+        private func startChartAnalysis(ownerName: String, chartJSON: String) {
+            aiStreamTask?.cancel()
+
+            guard let config = try? AIConfigProvider.current() else {
+                let msg = jsonString("未检测到可用 AI 配置，请先在\u{201C}我\u{201D}页面完成 Base URL、API Key 和模型配置。")
+                callJSFunction("window.__codexAIError?.(\(msg))")
+                return
+            }
+
+            guard let model = config.model?.trimmingCharacters(in: .whitespacesAndNewlines), !model.isEmpty else {
+                let msg = jsonString("未选择模型，请先在\u{201C}我\u{201D}页面测试连通并选择可用模型。")
+                callJSFunction("window.__codexAIError?.(\(msg))")
+                return
+            }
+
+            guard let chartData = chartJSON.data(using: .utf8),
+                  let chartObject = try? JSONSerialization.jsonObject(with: chartData) as? [String: Any] else {
+                let msg = jsonString("命盘数据解析失败")
+                callJSFunction("window.__codexAIError?.(\(msg))")
+                return
+            }
+
+            let systemPrompt = buildSystemPrompt(ownerName: ownerName, chartObject: chartObject)
+
+            callJSFunction("window.__codexAIStart?.()")
+
+            aiStreamTask = Task { @MainActor in
+                do {
+                    _ = try await OpenAICompatibleStreamer.streamChatCompletion(
+                        baseURL: config.baseURL,
+                        apiKey: config.apiKey,
+                        model: model,
+                        messages: [
+                            ["role": "system", "content": systemPrompt],
+                            ["role": "user", "content": "请开始分析"]
+                        ],
+                        temperature: 0.7
+                    ) { [weak self] token in
+                        await MainActor.run {
+                            self?.appendAIToken(token)
+                        }
+                    }
+
+                    callJSFunction("window.__codexAIFinish?.()")
+                } catch {
+                    let description = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    callJSFunction("window.__codexAIError?.(\(jsonString(description)))")
+                }
+            }
+        }
+
+        private func appendAIToken(_ token: String) {
+            callJSFunction("window.__codexAIAppendToken?.(\(jsonString(token)))")
+        }
+
+        private func callJSFunction(_ script: String) {
+            webView?.evaluateJavaScript(script, completionHandler: nil)
+        }
+
+        private func jsonString(_ value: String) -> String {
+            guard let data = try? JSONEncoder().encode(value),
+                  let json = String(data: data, encoding: .utf8) else {
+                return "\"\""
+            }
+            return json
+        }
+
+        private func buildSystemPrompt(ownerName: String, chartObject: [String: Any]) -> String {
+            let meta = chartObject["meta"] as? [String: Any]
+            let palaces = chartObject["palaces"] as? [[String: Any]] ?? []
+            let sihua = chartObject["sihua"] as? [String: Any]
+            let limits = chartObject["limits"] as? [[String: Any]] ?? []
+            let liunian = chartObject["liunian"] as? [String: Any]
+
+            let ganzhi = meta?["ganzhi"] as? [String: Any]
+            let yearGZ = ganzhi?["year"] as? [String: Any]
+            let monthGZ = ganzhi?["month"] as? [String: Any]
+            let dayGZ = ganzhi?["day"] as? [String: Any]
+            let hourGZ = ganzhi?["hour"] as? [String: Any]
+
+            let yearTG = yearGZ?["tg"] as? String ?? ""
+            let yearDZ = yearGZ?["dz"] as? String ?? ""
+            let monthTG = monthGZ?["tg"] as? String ?? ""
+            let monthDZ = monthGZ?["dz"] as? String ?? ""
+            let dayTG = dayGZ?["tg"] as? String ?? ""
+            let dayDZ = dayGZ?["dz"] as? String ?? ""
+            let hourTG = hourGZ?["tg"] as? String ?? ""
+            let hourDZ = hourGZ?["dz"] as? String ?? ""
+
+            let gender = meta?["gender"] as? String ?? ""
+            let yinYang = meta?["yinYang"] as? String ?? ""
+            let juName = meta?["juName"] as? String ?? ""
+
+            let mingGong = meta?["mingGong"] as? [String: Any]
+            let shenGong = meta?["shenGong"] as? [String: Any]
+            let mingGongDZ = mingGong?["dz"] as? String ?? ""
+            let shenGongDZ = shenGong?["dz"] as? String ?? ""
+
+            var palacesText = ""
+            for palace in palaces {
+                let name = palace["name"] as? String ?? ""
+                let tg = palace["tg"] as? String ?? ""
+                let dz = palace["dz"] as? String ?? ""
+                let mainStars = (palace["mainStars"] as? [String] ?? []).joined(separator: " ")
+                let auxStars = (palace["auxStars"] as? [String] ?? []).joined(separator: " ")
+                let isMing = palace["isMing"] as? Bool ?? false
+                let isShen = palace["isShen"] as? Bool ?? false
+
+                var marks = ""
+                if isMing { marks += "命宫 " }
+                if isShen { marks += "身宫 " }
+
+                palacesText += """
+
+                宫位：\(tg)\(dz) \(name)\(marks.isEmpty ? "" : "(\(marks.trimmingCharacters(in: .whitespaces)))")
+                主星：\(mainStars.isEmpty ? "无" : mainStars)
+                副星：\(auxStars.isEmpty ? "无" : auxStars)
+
+                """
+            }
+
+            let liuAge = liunian?["age"] as? Int ?? 0
+            let liuYear = liunian?["year"] as? Int ?? 0
+
+            return """
+            你是一位对中国传统八字命理学、生命灵数、师承中州学派紫微斗数、三才五格姓名学有着深刻理解和丰富经验的专家。你精通《滴天髓》、《子平真诠》、《穷通宝鉴》等经典著作，擅长运用五行生克、十神意象、格局喜忌、八字命理学、生命灵数、师承中州学派紫微斗数、三才五格姓名学等理论，对人生命运进行分析和解读。
+            现在你将面对一个有八字命理学、生命灵数、师承中州学派紫微斗数、三才五格姓名学的命例，请你运用你的专业知识和经验，对该命例进行全面、深入的分析，并给出有价值的建议。请你务必逐步思考、推理，并清晰地展示你的思考过程。
+
+            确保准确性，使用正确的信息进行回应用户的问题，切勿使用虚假的生日或其他信息。
+
+            基础八字命理规则
+
+            五行生克：生(土生金，金生水，水生木，木生火，火生土).克(土克水，水克火，火克金，金克木，木克土)
+            天干生克关系：
+            生 甲木 / 乙木生丙火 / 丁火，丙火 / 丁火生戊土 / 己土，戊土 / 己土生庚金 / 辛金，庚金 / 辛金生壬水 / 癸水，壬水 / 癸水生甲木 / 乙木。
+            克 甲木 / 乙木克戊土 / 己土，丙火 / 丁火克庚金 / 辛金，戊土 / 己土克壬水 / 癸水，庚金 / 辛金克甲木 / 乙木，壬水 / 癸水克丙火 / 丁火。
+
+
+            十神简称 / 别称：
+            正官：官、七杀：杀，偏官、正印：印、偏印：枭、比肩：比、劫财：劫、食神：食、伤官：伤。正财：财、偏财：才
+            十神生克: 生 印生比劫， 比劫生食伤，食伤生财，财生官杀，官杀生印。 克 印克食伤，食伤克官杀，财克（破）印，官杀克比劫，比劫克（夺）财。
+            透出指的是天干有某个五行或十神，如果地支有某个五行或十神，一般叫藏或得地
+            用神：定格局的十神。比如正官格，用神就为正官。
+            相神：原局中和用神搭配形成细分格局的十神，辅佐用神提升格局档次。比如"杀印相生"，用神是七杀，相神就是印（正印或偏印）。
+            喜神（喜用神）：八字格局喜欢的十神，可以辅助相神或用神提升命运档次，同时可以克制伤害格局或命运的忌神。
+            忌神（忌用神）：八字格局忌讳的十神，容易破坏（克或冲）用神或相神
+
+            紫微斗数主星的注意规则
+
+            不会化忌:紫微、天府、天相、七杀。
+            不会化权:廉贞、天府、天相、七杀。
+            不会化科:太阳、天同、廉贞、天府、贪狼、巨门、天相、七杀、破军。
+            不会化忌:紫微、天府、天相、天梁、七杀、破军。
+
+            辅佐星与煞星的注意规则
+
+            左辅、右弼、天魁、天钺不会化忌
+            擎羊、陀罗、火星、铃星不会化禄
+
+            基本信息如下：
+            性别：\(gender)
+            星座：未知
+            其八字命盘如下：
+
+            年柱：\(yearTG)\(yearDZ)
+            月柱：\(monthTG)\(monthDZ)
+            日柱：\(dayTG)\(dayDZ) (日主)
+            时柱：\(hourTG)\(hourDZ)
+
+            其紫微斗数命盘如下：
+
+            命主：未知、身主：未知、五行局：\(juName)
+            阴阳：\(yinYang)\(gender)
+            命宫：\(mingGongDZ)
+            身宫：\(shenGongDZ)
+            \(palacesText)
+            当前流年：\(liuYear)年，虚岁\(liuAge)岁
+
+            你的分析任务：
+            请你从以下几个方面入手，展开你的分析：
+            1.整体审视命局：首先，请你对整个八字命理学、生命灵数、师承中州学派紫微斗数、三才五格姓名学 进行审视，从五行、阴阳、十神、格局等多个角度入手，对命局的整体特点进行概括性的描述。例如，五行是否均衡？阴阳是否协调？是否存在某种特殊的格局？日元得令、得地、得助吗？
+            2.分析日元强弱：日元代表命主自身，其强弱直接关系到命主的运势。请你结合月令、地支、天干等因素，综合判断日元的强弱，并说明判断的依据。如果日元偏强，喜什么？忌什么？如果日元偏弱，又该如何取用神？
+            3.剖析性格特征：性格决定命运。请你结合八字命理学、生命灵数、师承中州学派紫微斗数、三才五格姓名学，分析命主的性格特点、优缺点，以及可能的发展方向。例如，是积极进取还是保守稳重？是善于交际还是喜欢独处？是理性思维还是感性思维？这些性格特点对命主的人生有何影响？
+            4.推断事业发展：事业是人生价值的重要体现。请你结合八字命理学、生命灵数、师承中州学派紫微斗数、三才五格姓名学，分析命主的事业运势、适合的职业、发展方向等。例如，适合从事稳定的工作还是具有挑战性的工作？适合自己创业还是在企业中发展？在事业发展过程中需要注意哪些问题？
+            5.预测财富运势：财富是人生幸福的重要保障。请你结合八字命理学、生命灵数、师承中州学派紫微斗数、三才五格姓名学，分析命主的财富状况、财运走势、理财建议等。例如，是正财运旺盛还是偏财运旺盛？适合从事哪些行业的投资？在理财方面需要注意哪些问题？
+            6.研判婚姻情感：婚姻是人生重要的组成部分。请你结合八字命理学、生命灵数、师承中州学派紫微斗数、三才五格姓名学，分析命主的婚姻运势、情感状况、婚恋建议等。例如，适婚年龄在几岁20、30、40？适合找什么样的伴侣？在婚姻中需要注意哪些问题？
+            7.关注健康状况：健康是幸福人生的基石。请你结合八字命理学、生命灵数、师承中州学派紫微斗数、三才五格姓名学，分析命主的健康状况、可能存在的健康隐患、养生建议等。例如，五行失衡可能导致哪些疾病？需要注意哪些方面的保健？
+            8.洞察六亲关系：六亲是与命主关系最为密切的人。请你结合八字命理学、生命灵数、师承中州学派紫微斗数、三才五格姓名学，分析命主与父母、配偶、子女等六亲的关系，以及六亲对命主的影响。例如，与父母的关系如何？配偶对自己有帮助吗？子女是否孝顺？
+            9.把握大运流年：大运和流年是影响命主运势的重要因素。请你结合大运和流年，分析命主在不同人生阶段的运势变化，为命主提供人生规划建议。例如，哪些年份是机遇期？哪些年份是挑战期？应该如何把握机遇、应对挑战？
+            在分析过程中，请你充分发挥你的聪明才智，运用你所掌握的命理学知识，结合实际情况，对命盘进行深入的剖析和解读，并给出有价值的建议。
+            请记住，你的目标是帮助求测者更好地了解自己，把握命运，创造幸福的人生。
+            请开始你的分析吧！请用纯文本输出，不要使用 Markdown 格式（不要用 #、**、*、- 等符号），只用普通文字、换行和标点符号。
+            """
+        }
     }
 
     private var loadSignature: String {
@@ -423,6 +628,7 @@ private struct JingHTMLWebView: UIViewRepresentable {
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
+        context.coordinator.webView = webView
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
@@ -841,56 +1047,119 @@ private struct JingHTMLWebView: UIViewRepresentable {
               showToastSafe('请先建立命盘');
               return;
             }
-            const oldOverlay = document.getElementById('codex-oracle-overlay');
-            if (oldOverlay && oldOverlay.parentNode) {
-              oldOverlay.parentNode.removeChild(oldOverlay);
+            if (!hasNativeStoreBridge) {
+              showToastSafe('AI 分析不可用');
+              return;
             }
-            const oldStyle = document.getElementById('codex-oracle-effect-style');
-            if (oldStyle && oldStyle.parentNode) {
-              oldStyle.parentNode.removeChild(oldStyle);
-            }
-            ensureCenterOracleEffect();
-            const overlay = document.getElementById('codex-oracle-overlay');
-            const stage = document.getElementById('codex-oracle-stage');
-            const loader = document.getElementById('codex-bagua-loader');
-            const book = document.querySelector('.codex-book-frame');
-            const content = document.getElementById('codex-oracle-content');
-            const viewport = document.getElementById('codex-oracle-scroll');
-            if (!overlay || !stage || !loader || !book || !content) return;
-
-            const hub = document.querySelector('.center-hub');
-            const grid = document.querySelector('.grid-12');
-            let centerY = window.innerHeight * 0.5;
-            if (hub) {
-              const r = hub.getBoundingClientRect();
-              centerY = r.top + r.height / 2;
-            } else if (grid) {
-              const r = grid.getBoundingClientRect();
-              const rowH = r.height / 4;
-              centerY = r.top + rowH * 1.5 + rowH;
-            }
-
-            content.innerHTML = buildOracleColumns(currentChart);
-            if (viewport) viewport.scrollLeft = 0;
+            ensureAIAnalysisOverlay();
+            const overlay = document.getElementById('codex-ai-analysis-overlay');
+            if (!overlay) return;
             overlay.style.display = 'flex';
-            stage.classList.remove('active');
-            loader.classList.add('codex-rotating');
+            const contentEl = document.getElementById('codex-ai-analysis-content');
+            if (contentEl) contentEl.textContent = '';
+            const statusEl = document.getElementById('codex-ai-analysis-status');
+            if (statusEl) statusEl.textContent = '天机推演中…';
 
-            loader.style.top = (centerY - 90) + 'px';
-            loader.style.transform = '';
-            book.style.top = centerY + 'px';
-            book.style.transform = 'translateX(-50%) rotateX(10deg) scale(0.8) translateY(-50%)';
-            loader.style.bottom = 'auto';
-            book.style.bottom = 'auto';
-
-            setTimeout(() => {
-              loader.classList.remove('codex-rotating');
-              loader.style.transform = 'scale(0) rotate(-720deg)';
-              loader.style.opacity = '0';
-              book.style.opacity = '1';
-              book.style.transform = 'translateX(-50%) rotateX(0deg) scale(1) translateY(-50%)';
-            }, 1200);
+            const ownerName = (document.getElementById('currentUserName')?.textContent || '').trim() || '命主';
+            const chartJSON = currentChart ? JSON.stringify(currentChart) : '';
+            postToNativeStore({ action: 'analyzeChart', payload: { ownerName, chartJSON } });
           }
+
+          function ensureAIAnalysisOverlay() {
+            if (document.getElementById('codex-ai-analysis-overlay')) return;
+            const styleId = 'codex-ai-analysis-style';
+            if (!document.getElementById(styleId)) {
+              const style = document.createElement('style');
+              style.id = styleId;
+              style.textContent = `
+                #codex-ai-analysis-overlay{position:fixed;inset:0;z-index:1500;background:rgba(2,3,8,0.92);display:none;flex-direction:column;align-items:center;justify-content:flex-start;padding:0;}
+                #codex-ai-analysis-header{width:100%;display:flex;align-items:center;justify-content:space-between;padding:52px 24px 16px;flex-shrink:0;}
+                #codex-ai-analysis-status{color:rgba(230,194,122,0.7);font-size:12px;letter-spacing:2px;font-family:var(--font-serif,serif);}
+                #codex-ai-analysis-close{height:32px;padding:0 14px;border:1px solid rgba(230,194,122,0.4);background:transparent;color:rgba(230,194,122,0.85);border-radius:16px;font-family:var(--font-serif,serif);letter-spacing:2px;font-size:12px;cursor:pointer;}
+                #codex-ai-analysis-scroll{flex:1;width:100%;overflow-y:auto;padding:0 24px 40px;}
+                #codex-ai-analysis-scroll::-webkit-scrollbar{display:none;}
+                #codex-ai-analysis-content{color:#e0e0e0;font-size:17px;line-height:1.85;letter-spacing:0.5px;font-family:var(--font-serif,serif);white-space:pre-wrap;word-break:break-word;}
+                #codex-ai-spinner{width:72px;height:72px;flex-shrink:0;margin:24px auto 8px;}
+              `;
+              (document.head || document.documentElement).appendChild(style);
+            }
+            const overlay = document.createElement('div');
+            overlay.id = 'codex-ai-analysis-overlay';
+            overlay.innerHTML = `
+              <div id="codex-ai-analysis-header">
+                <span id="codex-ai-analysis-status">天机推演中…</span>
+                <button id="codex-ai-analysis-close">返回命盘</button>
+              </div>
+              <svg id="codex-ai-spinner" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg">
+                <g class="spin-outer">
+                  <animateTransform attributeName="transform" type="rotate" from="0 36 36" to="-360 36 36" dur="3s" repeatCount="indefinite"/>
+                  <circle cx="36" cy="36" r="30" fill="none" stroke="rgba(230,194,122,0.35)" stroke-width="1" stroke-dasharray="4 5"/>
+                  <text x="36" y="6" text-anchor="middle" dominant-baseline="middle" font-size="8" fill="rgba(248,248,248,0.85)">☰</text>
+                  <text x="57.2" y="14.8" text-anchor="middle" dominant-baseline="middle" font-size="8" fill="rgba(248,248,248,0.85)">☴</text>
+                  <text x="66" y="36" text-anchor="middle" dominant-baseline="middle" font-size="8" fill="rgba(248,248,248,0.85)">☵</text>
+                  <text x="57.2" y="57.2" text-anchor="middle" dominant-baseline="middle" font-size="8" fill="rgba(248,248,248,0.85)">☶</text>
+                  <text x="36" y="66" text-anchor="middle" dominant-baseline="middle" font-size="8" fill="rgba(248,248,248,0.85)">☷</text>
+                  <text x="14.8" y="57.2" text-anchor="middle" dominant-baseline="middle" font-size="8" fill="rgba(248,248,248,0.85)">☳</text>
+                  <text x="6" y="36" text-anchor="middle" dominant-baseline="middle" font-size="8" fill="rgba(248,248,248,0.85)">☲</text>
+                  <text x="14.8" y="14.8" text-anchor="middle" dominant-baseline="middle" font-size="8" fill="rgba(248,248,248,0.85)">☱</text>
+                </g>
+                <g class="spin-inner">
+                  <animateTransform attributeName="transform" type="rotate" from="0 36 36" to="360 36 36" dur="6s" repeatCount="indefinite"/>
+                  <circle cx="36" cy="36" r="23" fill="#f7f7f7"/>
+                  <path d="M36 13 A23 23 0 0 1 36 59 A11.5 11.5 0 0 0 36 36 A11.5 11.5 0 0 1 36 13Z" fill="#0d0d0d"/>
+                  <circle cx="36" cy="24.5" r="3" fill="#f7f7f7"/>
+                  <circle cx="36" cy="47.5" r="3" fill="#0d0d0d"/>
+                  <circle cx="36" cy="36" r="23" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.8"/>
+                </g>
+              </svg>
+              <div id="codex-ai-analysis-scroll">
+                <div id="codex-ai-analysis-content"></div>
+              </div>
+            `;
+            document.body.appendChild(overlay);
+            document.getElementById('codex-ai-analysis-close').addEventListener('click', () => {
+              overlay.style.display = 'none';
+            });
+          }
+
+          window.__codexAIStart = function() {
+            ensureAIAnalysisOverlay();
+            const overlay = document.getElementById('codex-ai-analysis-overlay');
+            if (overlay) overlay.style.display = 'flex';
+            const contentEl = document.getElementById('codex-ai-analysis-content');
+            if (contentEl) contentEl.textContent = '';
+            const statusEl = document.getElementById('codex-ai-analysis-status');
+            if (statusEl) statusEl.textContent = '天机推演中…';
+            const spinner = document.getElementById('codex-ai-spinner');
+            if (spinner) { spinner.unpauseAnimations?.(); }
+          };
+
+          window.__codexAIAppendToken = function(token) {
+            const contentEl = document.getElementById('codex-ai-analysis-content');
+            if (!contentEl) return;
+            contentEl.textContent += token;
+            const scroll = document.getElementById('codex-ai-analysis-scroll');
+            if (scroll) scroll.scrollTop = scroll.scrollHeight;
+          };
+
+          window.__codexAIFinish = function() {
+            const statusEl = document.getElementById('codex-ai-analysis-status');
+            if (statusEl) statusEl.textContent = '天机已现';
+            const spinner = document.getElementById('codex-ai-spinner');
+            if (spinner) spinner.pauseAnimations?.();
+          };
+
+          window.__codexAIError = function(message) {
+            ensureAIAnalysisOverlay();
+            const overlay = document.getElementById('codex-ai-analysis-overlay');
+            if (overlay) overlay.style.display = 'flex';
+            const contentEl = document.getElementById('codex-ai-analysis-content');
+            if (contentEl) contentEl.textContent = message || '天机受阻，请稍后重试。';
+            const statusEl = document.getElementById('codex-ai-analysis-status');
+            if (statusEl) statusEl.textContent = '推演失败';
+            const spinner = document.getElementById('codex-ai-spinner');
+            if (spinner) spinner.pauseAnimations?.();
+          };
 
           function ensureCenterOracleEffect() {
             if (document.getElementById('codex-oracle-overlay')) return;
@@ -904,15 +1173,29 @@ private struct JingHTMLWebView: UIViewRepresentable {
                 .codex-main-stage{position:relative;width:100%;height:100%;perspective:1000px;z-index:1;}
                 .codex-bagua-loader{position:fixed;left:50%;margin-left:-90px;width:180px;height:180px;z-index:4;transition:all 1.2s cubic-bezier(0.7,0,0.3,1);}
                 .codex-bagua-ring{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;border:1px dashed rgba(255,255,255,0.45);border-radius:50%;}
-                .codex-bagua-glyph{position:absolute;color:rgba(248,248,248,0.92);font-size:18px;text-shadow:0 0 10px rgba(255,255,255,0.28);}
-                .codex-bagua-glyph.g0{transform:translate(0,-76px);}
-                .codex-bagua-glyph.g1{transform:translate(54px,-54px);}
-                .codex-bagua-glyph.g2{transform:translate(76px,0);}
-                .codex-bagua-glyph.g3{transform:translate(54px,54px);}
-                .codex-bagua-glyph.g4{transform:translate(0,76px);}
-                .codex-bagua-glyph.g5{transform:translate(-54px,54px);}
-                .codex-bagua-glyph.g6{transform:translate(-76px,0);}
-                .codex-bagua-glyph.g7{transform:translate(-54px,-54px);}
+                .codex-bagua-glyph{
+                  position:absolute;
+                  left:50%;
+                  top:50%;
+                  width:1em;
+                  height:1em;
+                  display:flex;
+                  align-items:center;
+                  justify-content:center;
+                  color:rgba(248,248,248,0.92);
+                  font-size:20px;
+                  line-height:1;
+                  text-shadow:0 0 10px rgba(255,255,255,0.28);
+                  transform:translate(-50%,-50%) translate(var(--gx), var(--gy));
+                }
+                .codex-bagua-glyph.g0{--gx:0px;--gy:-70px;}
+                .codex-bagua-glyph.g1{--gx:50px;--gy:-50px;}
+                .codex-bagua-glyph.g2{--gx:70px;--gy:0px;}
+                .codex-bagua-glyph.g3{--gx:50px;--gy:50px;}
+                .codex-bagua-glyph.g4{--gx:0px;--gy:70px;}
+                .codex-bagua-glyph.g5{--gx:-50px;--gy:50px;}
+                .codex-bagua-glyph.g6{--gx:-70px;--gy:0px;}
+                .codex-bagua-glyph.g7{--gx:-50px;--gy:-50px;}
                 .codex-rotating{animation:codexRotate 2s linear infinite;}
                 @keyframes codexRotate{
                   from{transform:rotate(0deg);}
